@@ -34,14 +34,13 @@ export function registerNaukriApply(server: McpServer): void {
         const { list, dropped } = await applyList(userId, "naukri", args, 15);
         if (!list.length) return { nothing_to_apply: true, dropped, next: args.from_queue ? "The queue is empty: run naukri_draft first." : "No job left to apply to." };
         const cfg = engineConfig(await loadUserData(userId), "naukri", { overrides: args.answers });
-        return envelope("naukri", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "naukri", cfg, {
           jobs: list.map((j) => ({ id: j.id, url: j.url })),
           ...(dropped.length ? { dropped } : {}),
           steps: [
-            "For each job in order: navigate to its url, then load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache).",
+            "For each job in order: navigate to its url, then load the engine (load_rule; after the first page loaded_check re-loads it from the page's cache).",
             "Run await __aupply.go('<id>'). r = STARTED: continue below. r = WAIT: wait ms (or work another platform) and run go again. Any other r is already the final result.",
-            "After about 20 seconds (the page may have moved to Naukri's result page), run loaded_check again (paste what it lists, if anything) and then await __aupply.finish(35000) until the job's result is in `new`.",
+            "After about 20 seconds (the page may have moved to Naukri's result page), run loaded_check again (if it does not answer ok, load_engine with its answer) and then await __aupply.finish(35000) until the job's result is in `new`.",
             "Call report_results (platform 'naukri', engine, results) every 5 results and at the end, and follow its next (a first 406 is retried once).",
           ],
           rules: ["One job at a time. Never dismiss the Simplify popup; the script hides it."],

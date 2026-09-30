@@ -41,6 +41,19 @@ export function compact(value: unknown): unknown {
   return value;
 }
 
+/**
+ * A tool result with code in it. The data is compact JSON as usual; each block is a text
+ * block of its own after it, verbatim. Code inside a JSON string arrives escaped (every
+ * quote and backslash doubled, three times over for a config inside a script), and Claude
+ * has to undo that while copying it: one slip and the page throws a SyntaxError.
+ */
+export class Reply {
+  constructor(
+    readonly data: unknown,
+    readonly blocks: string[] = []
+  ) {}
+}
+
 /** Run a tool body for the authenticated user and shape the result or error. */
 export async function run(
   extra: { authInfo?: AuthInfo },
@@ -48,7 +61,13 @@ export async function run(
 ): Promise<CallToolResult> {
   try {
     const result = await body(userIdOf(extra));
-    return { content: [{ type: "text", text: JSON.stringify(compact(result ?? { ok: true })) }] };
+    const reply = result instanceof Reply ? result : new Reply(result);
+    return {
+      content: [
+        { type: "text", text: JSON.stringify(compact(reply.data ?? { ok: true })) },
+        ...reply.blocks.map((text) => ({ type: "text" as const, text })),
+      ],
+    };
   } catch (err) {
     if (!(err instanceof AppError) || err.status >= 500) console.error("[mcp] tool failed:", err);
     return { isError: true, content: [{ type: "text", text: messageOf(err) }] };

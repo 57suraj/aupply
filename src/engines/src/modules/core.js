@@ -16,6 +16,8 @@ function core(X) {
   const cut = (s, n) => san(s).slice(0, n);
   const aid = () => Math.random().toString(36).slice(2, 10);
   const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The checksum Aupply puts on anything Claude copies into the page (src/engines/index.ts).
+  const h31 = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 
   /* Result store. Every result is persisted (so nothing is lost if the page or session
      dies) and handed to Claude once: status()/wait() return only what is new. */
@@ -50,5 +52,5 @@ function core(X) {
     return { status, wait };
   }
 
-  return { sleep, jitter, txt, clean, san, cut, aid, esc, makeStore, makeStatus };
+  return { sleep, jitter, txt, clean, san, cut, aid, esc, h31, makeStore, makeStatus };
 }

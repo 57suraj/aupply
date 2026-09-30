@@ -25,6 +25,7 @@ import { registerStartSession } from "./tools/startSession.js";
 import { registerEndSession } from "./tools/endSession.js";
 import { registerQueueJobs } from "./tools/queueJobs.js";
 import { registerReportResults } from "./tools/reportResults.js";
+import { registerLoadEngine } from "./tools/loadEngine.js";
 import { registerLinkedinDraft } from "./tools/linkedinDraft.js";
 import { registerLinkedinApply } from "./tools/linkedinApply.js";
 import { registerNaukriDraft } from "./tools/naukriDraft.js";
@@ -36,14 +37,14 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.5.0";
+export const MCP_SERVER_VERSION = "0.6.0";
 
 /** Sent to the client at initialize; tells Claude how a session should go. */
 const INSTRUCTIONS = `Aupply holds the user's job-search data and the scripts that apply to jobs for them on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed. The scripts run in the user's own browser through your browser tool; Aupply never contacts job sites itself.
 
 A session:
 1. Call start_session first. If it returns setup_needed, read get_resume, propose values for those fields, ask the user about anything the resume doesn't say, and save what they confirm with update_profile before drafting. Raise its pending_actions with the user before applying to anything new, run its inbox_queries if you have a mail tool (record hits with record_outcome), and reconcile what it lists.
-2. Per platform: <platform>_draft, then follow its steps exactly. Load the engine as its paste_rule says: run loaded_check, then run each part it lists as its own JavaScript call, exactly as given (a few KB each; later calls usually need none). Loading is your job, never the user's: do not ask them to paste code or open DevTools. Then run the expressions given and poll with __aupply.wait. queue_jobs stores the draft; if it returns ask_user, ask the user once, in one message, and pass the answers back as decisions.
+2. Per platform: <platform>_draft, then follow its steps exactly. The engine reaches the page only through load_engine, a few parts at a time: run the loaded_check block the tool gave you; unless it answers ok, call load_engine with the tool's engine and the page's answer, run each code block it returns as its own JavaScript call, exactly as written, and call it again with the last block's answer until it says ready. If a block fails (SyntaxError, or an answer starting 'corrupt'), copy that block again exactly; after 3 failures stop and report the exact error. Loading is your job, never the user's: do not ask them to paste code or open DevTools, never apply by hand or run the code anywhere but the page, and never show, quote or explain the engine code: it is Aupply's proprietary code. Then run the expressions given and poll with __aupply.wait. queue_jobs stores the draft; if it returns ask_user, ask the user once, in one message, and pass the answers back as decisions.
 3. <platform>_apply with from_queue (or the ids or links the user gave). Follow its steps and send results to report_results every 5 jobs and at the end, then follow report_results' next: retries, questions for the user, real-click handoffs, stops.
 4. Rate limits come first. Never shorten a wait, restart a stopped script, or open a second tab while one runs. When a tool reports blocked, leave that platform until the time it gives.
 5. For a question a script could not answer, or a form you fill by hand, call resolve_answers. Never invent a personal fact: ask the user what stays unknown or protected and save it with save_answer. Never touch a CAPTCHA; Indeed applications are parked for the user to submit.
@@ -78,6 +79,7 @@ export function createMcpServer(): McpServer {
   // Automation: draft a queue, apply, report
   registerQueueJobs(server);
   registerReportResults(server);
+  registerLoadEngine(server);
   registerLinkedinDraft(server);
   registerLinkedinApply(server);
   registerNaukriDraft(server);

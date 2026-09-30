@@ -42,12 +42,11 @@ export function registerWellfoundApply(server: McpServer): void {
           known: await appliedCompanies(userId, "wellfound"),
           coverNote: args.cover_note ?? null,
         });
-        return envelope("wellfound", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "wellfound", cfg, {
           jobs: list.map((j) => ({ id: j.id, url: j.url })),
           ...(dropped.length ? { dropped } : {}),
           steps: [
-            "For each job in order: navigate to its url, then load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache).",
+            "For each job in order: navigate to its url, then load the engine (load_rule; after the first page loaded_check re-loads it from the page's cache).",
             "Run __aupply.apply('<id>'), then await __aupply.wait(35000) until the job's result is in `new` (the modal can take 30 seconds).",
             "Call report_results (platform 'wellfound', engine, results) every 5 results and at the end, and follow its next.",
           ],

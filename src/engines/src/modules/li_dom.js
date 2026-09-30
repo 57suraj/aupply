@@ -1,20 +1,10 @@
-/* LinkedIn 1/4: rate limits, the result store and the page readers.
+/* LinkedIn apply 1/3: the page readers for the Easy Apply modal and the job page.
    Ported from applix 05-SCRIPTS-linkedin-engine.js (30 Sep 2026, live-tested) with the
-   personal values moved to CFG and the answer chain replaced by the shared resolver.
-   Loaded on /jobs-tracker/ and never eval'd (LinkedIn's CSP blocks eval on job pages,
-   and on the tracker page after the first load). The runner moves between jobs by SPA
+   answer chain replaced by the shared resolver. The runner moves between jobs by SPA
    navigation, so the page, and the engine, stay alive for the whole queue. */
 function li_dom(X) {
   'use strict';
-  const { CFG, txt, cut, makeStore, makeStatus } = X;
-  /* Rate limits. Fixed here on purpose: no tool input can shorten them
-     (docs/automation-tools.md, "Rate limits"). */
-  const P = { page: 6000, pageSlow: 8000, gapMin: 15000, gapMax: 30000, rlPause: 300000, search: 1000, jd: 1500, jdPause: 600000 };
-  const ST = makeStore('__aupply_li_' + (CFG.u || 'x'), localStorage);
-  const S = ST.S;
-  S.running = false;
-  const { status, wait } = makeStatus(CFG, ST);
-  const SC = CFG.screen || {};
+  const { txt, cut } = X;
   const CONSENT = /consent|i agree|agree to|privacy notice|privacy policy|acknowledge|i understand|declare|certify|attest|terms and conditions|data processing|gdpr/i;
   const NEVERTICK = /marketing|promotion|newsletter|text message|\bsms\b|notify me|updates about|follow|subscribe/i;
 
@@ -114,7 +104,6 @@ function li_dom(X) {
   const closed = () => /no longer accepting applications/i.test(document.body.innerText);
   const alreadyApplied = () => /\byou applied\b|\bapplied \d+ (second|minute|hour|day|week|month)s? ago\b|application submitted/i.test(document.body.innerText);
   const pageTitle = () => { const p = (document.title || '').split('|').map((x) => x.trim()); return { t: cut(p[0], 70), co: cut(p[1], 40) }; };
-  const trackerCount = () => { const m = (document.body.innerText || '').match(/Applied\s*[·•:-]\s*([\d,]+)/i); return m ? +m[1].replace(/,/g, '') : null; };
 
-  return { P, ST, S, status, wait, SC, CONSENT, NEVERTICK, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, easy, closed, alreadyApplied, pageTitle, trackerCount };
+  return { CONSENT, NEVERTICK, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, easy, closed, alreadyApplied, pageTitle };
 }

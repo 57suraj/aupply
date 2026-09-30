@@ -116,7 +116,39 @@ async function tool(token, name, args = {}) {
   } catch {
     data = result?.content?.[0]?.text;
   }
-  return { status: res.status, isError: Boolean(result?.isError), data, raw: res.body };
+  // Code arrives as text blocks after the JSON, verbatim (nothing escaped).
+  const blocks = (result?.content || []).slice(1).map((c) => c.text);
+  return { status: res.status, isError: Boolean(result?.isError), data, blocks, raw: res.body };
+}
+
+const h31 = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
+/** "/*aupply linkedin@ver core*\/" -> "core"; "/*aupply loaded_check*\/" -> "loaded_check". */
+const blockName = (b) => /^\/\*aupply (?:\S+@\S+ )?(\S+)\*\//.exec(b)?.[1];
+const blockWith = (r, name) => r.blocks.find((b) => blockName(b) === name);
+
+/** What Claude does with a page: run loaded_check, then ask load_engine with the answer and
+    run each block it sends, until the engine is ready. Returns what happened. */
+async function loadEngineIn(page, res, token) {
+  const out = { answers: 0, sent: [], maxBytes: 0, ready: false, booted: null, error: null, bytes: 0 };
+  let answer = vm.runInContext(blockWith(res, "loaded_check"), page);
+  if (answer === "ok") return { ...out, ready: true, already: true };
+  while (out.answers < 20) {
+    const d = await tool(token, "load_engine", { engine: res.data.engine, page: answer });
+    if (d.isError || d.data.stale || d.data.limit || d.data.blocked) { out.error = d.isError ? d.data : d.data; break; }
+    if (d.data.ready) { out.ready = true; break; }
+    out.answers++;
+    const bytes = d.blocks.reduce((n, b) => n + b.length, 0);
+    out.bytes += bytes;
+    out.maxBytes = Math.max(out.maxBytes, bytes);
+    out.batch = d.data;
+    for (const b of d.blocks) {
+      out.sent.push(blockName(b));
+      answer = vm.runInContext(b, page);
+      if (blockName(b) === "boot") { out.booted = JSON.parse(answer); out.ready = Boolean(out.booted.ok); }
+    }
+    if (out.booted) break;
+  }
+  return out;
 }
 
 const b64url = (buf) => Buffer.from(buf).toString("base64url");
@@ -297,7 +329,7 @@ async function main() {
   expect("server instructions sent", (init.body?.result?.instructions || "").includes("start_session"), init.body?.result);
   const list = await mcp(accessA, "tools/list", {});
   const toolNames = (list.body?.result?.tools || []).map((t) => t.name).sort();
-  expect("26 tools listed", toolNames.length === 26, toolNames);
+  expect("27 tools listed", toolNames.length === 27 && toolNames.includes("load_engine"), toolNames);
 
   let r = await tool(accessA, "get_pending_actions");
   expect("get_pending_actions (empty)", !r.isError && Array.isArray(r.data) && r.data.length === 0, r.data);
@@ -496,27 +528,75 @@ async function main() {
 
   section("Automation tools");
   r = await tool(accessA, "linkedin_draft", {});
-  const liParts = r.data?.parts || {};
-  const liNums = Object.keys(liParts);
-  expect("linkedin_draft returns the engine as small parts", !r.isError && liNums.length >= 8 && liNums.every((n) => liParts[n].length <= 8000) && typeof r.data.loaded_check === "string" && r.data.steps?.length === 6, r.data?.engine ?? r.data);
+  const draftRes = r;
+  const draftJson = JSON.stringify(r.data);
+  expect(
+    "linkedin_draft carries no engine code, only the engine id, steps and a tiny loaded_check block",
+    !r.isError && r.data.engine?.startsWith("linkedin_draft@") && r.blocks.length === 1 && blockName(r.blocks[0]) === "loaded_check" && r.blocks[0].length < 1000 &&
+      !("parts" in r.data) && !draftJson.includes("__ap") && draftJson.length < 4500 && typeof r.data.load_rule === "string" && r.data.steps?.length === 6,
+    { engine: r.data?.engine, blocks: r.blocks.length, json: draftJson.length }
+  );
+  const draftPage = stubPage();
   {
-    // Load it the way Claude does: loaded_check, then each part it lists, one call each.
-    const page = stubPage();
-    const check = vm.runInContext(r.data.loaded_check ?? "''", page);
-    const listed = String(check).replace("paste parts ", "").split(",");
-    let last = "{}";
-    for (const n of listed) last = vm.runInContext(liParts[n] ?? "''", page);
-    const booted = JSON.parse(last);
-    expect("the parts load in a page and the engine boots", String(check).startsWith("paste parts 1,") && listed.length === liNums.length && booted.ok && booted.fails?.length === 0 && vm.runInContext(r.data.loaded_check, page) === "ok", { check, booted });
-    const tampered = vm.runInContext(liParts["1"].replace("Math.floor", "Math.ceil"), stubPage());
-    expect("a part changed in transit refuses to load", String(tampered).startsWith("corrupt part core"), tampered);
+    const res = await loadEngineIn(draftPage, draftRes, accessA);
+    expect("load_engine sends the draft engine in pieces and it boots", res.ready && res.booted?.ok && res.booted.fails?.length === 0 && res.answers >= 2 && res.maxBytes <= 32000, res);
+    expect("the draft engine never receives the apply code", !res.sent.some((n) => /^(res_|li_dom|li_fill|li_main)/.test(n)) && res.sent.includes("li_draft") && res.sent.at(-1) === "boot", res.sent);
+    expect("loaded_check answers ok once the engine is loaded", vm.runInContext(blockWith(draftRes, "loaded_check"), draftPage) === "ok");
+    const state = vm.runInContext("JSON.stringify([window.__ap.v,window.__ap.c,window.__ap.e])", draftPage);
+    const ready = await tool(accessA, "load_engine", { engine: draftRes.data.engine, page: state });
+    expect("a loaded page is sent nothing more", !ready.isError && ready.data.ready === true && ready.blocks.length === 0, ready.data);
+    const first = await tool(accessA, "load_engine", { engine: draftRes.data.engine, page: "garbage" });
+    const flip = (code) => { const at = code.indexOf("const f=") + 40; return code.slice(0, at) + (code[at] === "a" ? "b" : "a") + code.slice(at + 1); };
+    const altered = (() => { try { return String(vm.runInContext(flip(first.blocks[0]), stubPage())); } catch (e) { return `THROW ${e.name}`; } })();
+    expect("a part changed in transit refuses to run", /^corrupt part |^THROW SyntaxError/.test(altered), altered);
+    expect("an unreadable page answer is treated as an empty page", !first.isError && first.data.blocks?.[0] === "core" && first.blocks.every((b) => b.length <= 8000), first.data);
   }
-  const liEngine = r.data?.engine;
-  r = await tool(accessA, "linkedin_draft", { engine_loaded: liEngine });
-  expect("engine_loaded skips re-sending the parts", !r.isError && r.data.parts === undefined && r.data.loaded_check, Object.keys(r.data || {}));
-  r = await tool(accessA, "linkedin_draft", { engine_loaded: liEngine?.replace(/\.[^.]+$/, ".00000000") });
-  const cfgOnly = Object.keys(r.data?.parts || {});
-  expect("a changed config re-sends only the config and boot parts", !r.isError && cfgOnly.length >= 2 && !cfgOnly.includes("1") && cfgOnly.includes(liNums[liNums.length - 1]), cfgOnly);
+  {
+    // The same config again: same id, still no code. A changed config: a new id, and only config and boot are sent.
+    r = await tool(accessA, "linkedin_draft", {});
+    expect("an unchanged config issues the same engine id", !r.isError && r.data.engine === draftRes.data.engine, r.data?.engine);
+    const changed = await tool(accessA, "linkedin_draft", { keywords: ["Platform Engineer"] });
+    expect("a changed config issues a new engine id", !changed.isError && changed.data.engine !== draftRes.data.engine && changed.data.engine.startsWith("linkedin_draft@"), changed.data?.engine);
+    const res = await loadEngineIn(draftPage, changed, accessA);
+    expect("a changed config sends only the config and boot parts to a page that has the modules", res.ready && res.sent.length >= 2 && res.sent.every((n) => /^config\d+$|^boot$/.test(n)), res.sent);
+    const old = await tool(accessA, "load_engine", { engine: draftRes.data.engine });
+    expect("an engine id the tool has replaced is stale", !old.isError && old.data.stale === true && old.blocks.length === 0, old.data);
+    const bad = await tool(accessA, "load_engine", { engine: "nonsense" });
+    expect("an unknown engine id is a tool error", bad.isError, bad.data);
+    const other = await tool(accessA, "load_engine", { engine: "naukri@0000000000.00000000" });
+    expect("an engine that was never issued is stale, not served", !other.isError && other.data.stale === true && other.blocks.length === 0, other.data);
+  }
+  {
+    // Every other platform: issue, load in a fresh page, and on the platforms that cache, restore it without the server.
+    const cases = [
+      ["naukri_draft", "naukri", "localStorage", {}],
+      ["wellfound_draft", "wellfound", "sessionStorage", {}],
+      ["indeed_draft", "indeed", "localStorage", {}],
+    ];
+    for (const [toolName, platform, storage, args] of cases) {
+      const t = await tool(accessA, toolName, args);
+      const page = stubPage();
+      const res = t.isError || !t.data?.engine ? { error: t.data } : await loadEngineIn(page, t, accessA);
+      expect(`${toolName}: engine issued without code, loaded in pieces, booted`, !t.isError && t.data.engine?.startsWith(`${platform}@`) && t.blocks.length === 1 && res.ready && res.booted?.ok && res.booted.platform === platform && res.answers >= 2, { engine: t.data?.engine, res });
+      const cached = page[storage].getItem(`__aupply_${platform}`);
+      const fresh = stubPage();
+      fresh[storage].setItem(`__aupply_${platform}`, cached ?? "");
+      expect(`${toolName}: a new page restores the engine from its own cache and answers ok`, Boolean(cached) && vm.runInContext(blockWith(t, "loaded_check"), fresh) === "ok", String(cached).length);
+    }
+    // A backoff on a platform also stops its engine.
+  }
+  {
+    // Deliveries are metered per user, engine and day: a page that keeps asking from nothing is refused.
+    const t = await tool(accessA, "wellfound_draft", {});
+    let served = 0, limited = null, calls = 0;
+    for (; calls < 60 && !limited; calls++) {
+      const d = await tool(accessA, "load_engine", { engine: t.data.engine });
+      if (d.data.limit) limited = d; else served += d.blocks.reduce((n, b) => n + b.length, 0);
+    }
+    const again = await tool(accessA, "load_engine", { engine: t.data.engine });
+    expect("engine deliveries are metered: a page that keeps asking from nothing is refused", limited && limited.blocks.length === 0 && again.data.limit === true && served > 0 && served < 600000, { calls, served, limited: limited?.data });
+  }
+  const liEngine = draftRes.data.engine;
   r = await tool(accessA, "queue_jobs", {
     platform: "linkedin",
     jobs: [{ id: "4471000001", t: "Backend Engineer", co: "Qco", w: "1h" }, { id: "https://www.linkedin.com/jobs/view/4471000002/", t: "SDE", co: "Rco", sm: ["Java"] }],
@@ -525,8 +605,29 @@ async function main() {
   expect("queue_jobs queues, asks, skips", !r.isError && r.data.counts?.queued === 1 && r.data.ask_user?.[0]?.id === "4471000002" && r.data.counts.skipped === 1, r.data);
   r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471000001", "urn:li:jobPosting:4471000003", "4471000009"] });
   expect("check_applied sees queued and skipped jobs", !r.isError && r.data.new?.length === 1 && r.data.known.length === 2, r.data);
-  r = await tool(accessA, "linkedin_apply", { from_queue: true, engine_loaded: liEngine });
-  expect("linkedin_apply takes the queue, not undecided jobs", !r.isError && r.data.jobs === 1 && r.data.steps?.[2]?.includes('"4471000001"'), r.data);
+  r = await tool(accessA, "linkedin_apply", { from_queue: true });
+  const applyRes = r;
+  const runBlock = blockWith(r, "run");
+  const queueJson = /runQueue\((\[\[.*\]\]),\{/.exec(runBlock ?? "")?.[1];
+  const queueK = Number(/k:(-?\d+)/.exec(runBlock ?? "")?.[1]);
+  expect(
+    "linkedin_apply takes the queue, not undecided jobs, and sends it as a verbatim block with a checksum",
+    !r.isError && r.data.jobs === 1 && r.data.engine.startsWith("linkedin@") && r.blocks.length === 2 && blockName(r.blocks[0]) === "loaded_check" && Boolean(queueJson) &&
+      JSON.parse(queueJson)[0][0] === "4471000001" && queueK === h31(JSON.stringify(JSON.parse(queueJson))) && !JSON.stringify(r.data).includes("runQueue"),
+    { engine: r.data?.engine, blocks: r.blocks.map(blockName), runBlock }
+  );
+  {
+    // Drafted in this page already: only the apply parts are missing.
+    const res = await loadEngineIn(draftPage, applyRes, accessA);
+    expect("an apply after a draft in the same page gets only what is missing, never the draft code", res.ready && res.booted?.ok && !res.sent.some((n) => /^(core|pay|li_base|li_draft|li_dmain)$/.test(n)) && res.sent.includes("li_fill") && res.sent.at(-1) === "boot" && res.answers >= 3, res.sent);
+    const api = vm.runInContext("Object.keys(window.__aupply).sort().join()", draftPage);
+    expect("the apply engine exposes the runner and not the draft calls", api.includes("runQueue") && !api.includes("sweep"), api);
+    const wrong = vm.runInContext(runBlock.replace(/k:-?\d+/, "k:1"), draftPage);
+    expect("a queue that does not match its checksum is refused by the page", String(wrong).startsWith("CORRUPT_QUEUE"), wrong);
+    const fresh = stubPage();
+    const all = await loadEngineIn(fresh, applyRes, accessA);
+    expect("a fresh page loads the apply engine in pieces", all.ready && all.booted?.ok && all.answers >= 4 && all.sent.includes("res_api") && !all.sent.includes("li_draft"), all.sent);
+  }
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
   expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000002", r: "NO_MODAL", a: "att2" }] });
@@ -535,6 +636,8 @@ async function main() {
   expect("DAILY_LIMIT stops LinkedIn", !r.isError && r.data.stopped?.scope === "linkedin", r.data);
   r = await tool(accessA, "linkedin_apply", { jobs: ["4471000009"] });
   expect("blocked platform refuses scripts", !r.isError && r.data.blocked === true, r.data);
+  r = await tool(accessA, "load_engine", { engine: applyRes.data.engine });
+  expect("a blocked platform's engine is not delivered either", !r.isError && r.data.blocked === true && r.blocks.length === 0, r.data);
   r = await tool(accessA, "log_application", { platform: "linkedin", external_id: "not-an-id", company_name: "X", job_title: "Y", status: "applied" });
   expect("non-canonical LinkedIn id rejected", r.isError, r.data);
 

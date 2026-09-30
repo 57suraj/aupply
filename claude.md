@@ -15,13 +15,13 @@ answers, never inventing personal facts, outcomes that wait on a human. The newe
 applix knowledge (amendments up to #84, 28 Sep) is in Google Drive folder
 `1ISY883-VdE9OS52xPU2-wDLfbfbWOrJ0`; list it and read by title, since file ids change.
 
-**Status:** backend works end to end (OAuth connector, 26 MCP tools, dashboard
+**Status:** backend works end to end (OAuth connector, 27 MCP tools, dashboard
 API): 13 data tools (including `resolve_answers` and `update_profile`, which onboards a
-user from their resume), `start_session` / `end_session`, and 11
+user from their resume), `start_session` / `end_session`, and 12
 automation tools (draft and apply on LinkedIn, Naukri, Wellfound, Indeed, plus
-`queue_jobs` and `report_results`). The automation tools are **built but not yet
-proven in a browser** (the first live test stopped at loading the engine; it now loads in
-small parts): see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
+`queue_jobs`, `report_results` and `load_engine`). The automation tools are **built but not yet
+proven in a browser** (the live tests stopped at loading the engine; it now reaches the
+page in small parts the server hands out on request): see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
 nice-to-have**, so automation work comes before dashboard work. Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
 the other sections are still placeholders ("coming in next phase"), leave them until asked. **Payments are on hold**: the provider is undecided, so do
 not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
@@ -34,15 +34,19 @@ not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
 - `src/auth`: OAuth 2.1 server (`oauthProvider.ts` plugged into the MCP SDK's
   `mcpAuthRouter`), consent API, Supabase-session middleware for `/api`.
 - `src/services`: all data access, shared by MCP tools and REST routes.
+  `src/services/engines.ts`: engine delivery (issue, `load_engine`, the delivery meter).
 - `src/domain/schemas.ts`: zod inputs and enums; enums mirror the DB CHECK constraints.
 - `src/mcp/tools`: one file per tool; `src/mcp/toolkit.ts` wraps auth, errors, compact JSON
-  (it drops null/empty values, so an empty array comes back missing).
+  (it drops null/empty values, so an empty array comes back missing). Code in a result
+  goes out as `Reply` text blocks after the JSON, never inside it (see below).
 - `src/engines/src/modules`: the browser engines as modules, one factory per file
-  (shared `core` and `res_*`, then `li_*`, `nk_*`, `wf_*`, `in_*`).
-  `scripts/build-engines.mjs` turns each into a small checksummed part, checks them
-  (parse, size, undeclared names, a boot in a stub page) and writes
-  `src/engines/generated.ts`, which is committed. After editing a module run
-  `npm run build:engines` and commit the generated file.
+  (shared `core`, `pay` and `res_*`, then `li_*` (LinkedIn has a draft and an apply
+  engine), `nk_*`, `wf_*`, `in_*`). `scripts/build-engines.mjs` turns each into a small
+  checksummed part, checks them (parse, size, undeclared names, every engine boots in a
+  stub page) and writes `src/engines/generated.ts`, which is committed. After editing a
+  module run `npm run build:engines` and commit the generated file.
+  `src/engines/index.ts`: config parts, the page-state check and `planLoad` (what to
+  send next).
 - `src/platforms`: job ids, platform knowledge, per-user engine config, result mapping.
   `src/services/automation.ts`: queue, results, backoffs, LinkedIn cap.
 - `src/api`: dashboard REST routes (thin: parse with zod, call a service).
@@ -177,15 +181,30 @@ everywhere:
   slug, canonicalised by one function on every write and lookup. Drafts run
   `check_applied` (one lookup on the unique index) before any costly step. LinkedIn
   drafts are Easy Apply only.
-- Engines load as small numbered parts, each pasted as the browser tool's source in
-  its own call (the build caps a part at 8KB: in the first live test a browser tool
-  would not take a 36KB script in one call, and Claude handed the paste to the user).
-  `loaded_check` names the parts a page needs; loading is Claude's job, never the
-  user's. Never `eval` on LinkedIn (CSP, even on the tracker page after the first load);
-  on Naukri, Wellfound and Indeed the engine caches itself and `loaded_check` re-loads it.
-- One engine per platform, built and checked in this repo, versioned by hash; each part
-  verifies its own checksum, so a part mistyped in transit refuses to load.
-  Personal values reach an engine only as generated config, never in its source.
+- **The engine is the product, so the server decides what Claude gets and when.** A
+  platform tool returns steps, an engine id and a tiny `loaded_check` block, never engine
+  code. Claude runs `loaded_check` in its page; unless it answers `ok` it calls
+  `load_engine` with the page's answer (the page's state), and the server sends only the
+  next few parts the page lacks: at most 12KB of module code per answer, never every
+  module of an engine in one answer. Never add another way for engine code to reach
+  Claude (no "send everything", debug dumps, or code in tool descriptions, instructions
+  or docs served to clients). Deliveries are metered per user, engine and day
+  (`DAY_LOADS` full engines), logged, and stop during a platform backoff.
+- Code travels as verbatim text blocks, each labelled `/*aupply <engine> <part>*/`, never
+  inside a JSON string: escaped code has to be unescaped by Claude while copying, and one
+  slip is a SyntaxError no checksum can catch. The user's config is a plain object built
+  in the page (`window.__apc`), not JSON inside JavaScript. Anything Claude copies that
+  has consequences carries a checksum (the LinkedIn queue's job ids). A failed block (a
+  SyntaxError or a `corrupt ...` answer) is copied again; after 3 failures Claude stops
+  and reports the exact error, never applies by hand or asks the user to paste code.
+- Parts are at most 8KB and loaded by Claude, never the user. Never `eval` on LinkedIn
+  (CSP, even on the tracker page after the first load); on Naukri, Wellfound and Indeed
+  the engine caches itself in page storage and `loaded_check` re-loads it with no server
+  call.
+- One engine per platform (LinkedIn has two, so a draft never receives the apply code and
+  the reverse), built and checked in this repo, versioned by hash; each part verifies its
+  own checksum, so a part mistyped in transit refuses to load. Personal values reach an
+  engine only as generated config, never in its source.
 - One answer registry shared by every engine and `resolve_answers`; one screening
   module compiled from preferences, used in the page and on the server.
 - The queue is `applications` with status `discovered`. Retry, cap and stop rules live
@@ -202,6 +221,9 @@ everywhere:
 - The frontend uses the legacy anon JWT key; can move to the `sb_publishable_` key.
 - Automation: India only for v1 is assumed, not confirmed (`docs/automation-tools.md`
   section 15).
+- The engine source is in the public repo `57suraj/aupply` (modules and `generated.ts`),
+  which undoes the delivery guard above. Make the repo private, or move the engine to a
+  private one, before relying on it; history already holds it.
 - Live test of the automation tools in the user's browser. The Naukri and Wellfound
   engines are ports of the 16 Sep scripts; the newer copies (28 Sep Wellfound, Naukri
   `answer()` patches, Indeed v2) exist only in the Claude project "apply".

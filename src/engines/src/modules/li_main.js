@@ -1,8 +1,8 @@
-/* LinkedIn 4/4: the queue runner (SPA navigation between jobs, 15 to 30s apart, a 5
+/* LinkedIn apply 3/3: the queue runner (SPA navigation between jobs, 15 to 30s apart, a 5
    minute pause after "Rate Limited" and a stop on the second) and window.__aupply. */
 function li_main(X) {
   'use strict';
-  const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, deepAll, pageTitle, trackerCount, job, cont, sweep, prescreen, yearsOf } = X;
+  const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont } = X;
   let pageWait = P.page;
 
   const nav = async (path) => {
@@ -31,9 +31,11 @@ function li_main(X) {
   };
 
   // q: [[jobId, companyName], ...]. keepOpen: single job, leave the modal open for a
-  // real-click handoff (NEEDS_CLICK, FOLLOW_STUCK), then resume().
+  // real-click handoff (NEEDS_CLICK, FOLLOW_STUCK), then resume(). k is the checksum of q
+  // the server sent with it: a job id mistyped in transit would apply to the wrong job.
   const runQueue = (q, opts) => {
     opts = opts || {};
+    if (opts.k != null && opts.k !== h31(JSON.stringify(q))) return 'CORRUPT_QUEUE: copy the run block again exactly as given';
     if (S.running) return 'RUNNING';
     S.running = true; S.phase = 'applying'; S.stop = false; S.end = null; S.info = { tracker: {} };
     (async () => {
@@ -99,10 +101,10 @@ function li_main(X) {
     v: CFG.v, h: CFG.h, platform: 'linkedin',
     status, wait, running: () => !!S.running,
     all: () => JSON.stringify(ST.all()),
-    sweep, prescreen, runQueue, resume,
+    runQueue, resume,
     stop: () => { S.stop = true; return 'stopping after the current job'; },
     tracker: trackerCount,
-    selfTest, _t: { A: R.A, pickOpt: R.pickOpt, yearsOf },
+    selfTest, _t: { A: R.A, pickOpt: R.pickOpt },
   };
   return { ret: selfTest() };
 }

@@ -52,8 +52,9 @@ export async function getState(userId: string, scope: string) {
   );
 }
 
-export async function mergeState(userId: string, scope: string, patch: Meta) {
-  const cur = await getState(userId, scope);
+/** `current` is the row the caller just read, so the merge does not read it again. */
+export async function mergeState(userId: string, scope: string, patch: Meta, current?: Awaited<ReturnType<typeof getState>>) {
+  const cur = current === undefined ? await getState(userId, scope) : current;
   check(
     await db()
       .from("platform_state")

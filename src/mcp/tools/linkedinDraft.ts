@@ -23,15 +23,14 @@ export function registerLinkedinDraft(server: McpServer): void {
       title: "Draft the LinkedIn queue",
       description:
         "Build today's LinkedIn Easy Apply queue: the 30 to 40 best new jobs for the user, screened by their " +
-        "preferences, minus everything Aupply already knows. Returns the engine for the LinkedIn jobs tracker page, as " +
-        "small parts you load with your browser tool (paste_rule), and the exact steps (sweep, check_applied, prescreen, " +
-        "queue_jobs). Easy Apply only; last hour first, then the last 24 hours. The engine paces itself to stay under " +
+        "preferences, minus everything Aupply already knows. Returns the exact steps (sweep, check_applied, prescreen, " +
+        "queue_jobs) and the id of the draft engine for the LinkedIn jobs tracker page; load_engine brings it into the " +
+        "page (load_rule). Easy Apply only; last hour first, then the last 24 hours. The engine paces itself to stay under " +
         "LinkedIn's rate limits; never shorten a wait. Refuses while LinkedIn is in a backoff or today's quota is used.",
       inputSchema: {
         windows: z.array(z.enum(["1h", "24h"])).max(2).optional().describe("Default both, last hour first."),
         keywords: z.array(z.string().min(2).max(80)).max(12).optional().describe("Default: the user's desired roles."),
         target: z.number().int().min(5).max(60).optional().describe("Jobs to keep. Default 40."),
-        engine_loaded: z.string().max(40).optional().describe("`engine` from an earlier response, once loaded_check answered ok in this page."),
       },
       annotations: READ_ONLY,
     },
@@ -45,6 +44,7 @@ export function registerLinkedinDraft(server: McpServer): void {
           return { skip: true, reason: `Today's LinkedIn quota is used (${cap.used} of ${cap.cap}).`, next: "Skip LinkedIn today; draft Naukri or Wellfound." };
         }
         const cfg = engineConfig(d, "linkedin", {
+          only: "screen",
           screen: {
             ...(args.windows ? { windows: args.windows.map((w) => (w === "1h" ? "r3600" : "r86400")) } : {}),
             ...(args.keywords ? { keywords: args.keywords.map((k) => [k, 3]) } : {}),
@@ -54,13 +54,12 @@ export function registerLinkedinDraft(server: McpServer): void {
         if (!(cfg.screen as { keywords?: unknown[] }).keywords?.length) {
           return { skip: true, reason: "No roles to search for.", next: "Ask the user which roles to search, save them with update_profile (preferences.desired_roles), then call linkedin_draft again." };
         }
-        return envelope("linkedin", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "linkedin_draft", cfg, {
           cap_left: cap.left,
           open: LINKEDIN_TRACKER,
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there) and keep this tab for every step below.`,
-            "Load the engine (paste_rule). It stays loaded for the whole session on this page.",
+            "Load the engine (load_rule). It stays loaded while this page stays open.",
             "Run __aupply.sweep(), then await __aupply.wait(35000) until an item with phase 'swept' arrives. Keep its ids and tracker.",
             "Call check_applied with platform 'linkedin' and external_ids = those ids.",
             "Run __aupply.prescreen({skip: <the ids in check_applied.known>}), then await __aupply.wait(35000) until phase 'screened'. If paused_until shows, the script is waiting out a rate limit: keep polling or work another platform meanwhile.",

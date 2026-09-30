@@ -83,7 +83,7 @@ function educationFacts(educations: Education[]) {
 }
 
 /** savedLimit: saved answers matched by exact question. Engines get the 60 most
-    recently used short ones (they ride in the pasted config; a long answer is left out
+    recently used short ones (they ride in the config parts; a long answer is left out
     rather than cut, and resolve_answers still finds it); the server can afford all. */
 export function answerPack(d: UserData, overrides?: Record<string, string>, savedLimit = 60) {
   const { profile: p, prefs } = d;
@@ -204,16 +204,24 @@ export function screening(d: UserData, platform: ScriptedPlatform) {
 export function engineConfig(
   d: UserData,
   platform: ScriptedPlatform,
-  extra: { overrides?: Record<string, string>; known?: string[]; coverNote?: string | null; screen?: Record<string, unknown> } = {}
+  extra: {
+    overrides?: Record<string, string>;
+    known?: string[];
+    coverNote?: string | null;
+    screen?: Record<string, unknown>;
+    /** Only one half of the config, for an engine that needs only that half (the LinkedIn
+        draft screens, the LinkedIn apply answers); default both. */
+    only?: "answers" | "screen";
+  } = {}
 ) {
   const cfg = {
     u: d.userId.slice(0, 8),
-    ...answerPack(d, extra.overrides),
-    screen: { ...screening(d, platform), ...(extra.screen ?? {}) },
+    ...(extra.only === "screen" ? {} : answerPack(d, extra.overrides)),
+    ...(extra.only === "answers" ? {} : { screen: { ...screening(d, platform), ...(extra.screen ?? {}) } }),
     ...(extra.known ? { known: extra.known } : {}),
     ...(extra.coverNote ? { coverNote: extra.coverNote } : {}),
   };
-  // h identifies this exact config, so a cached engine with stale answers is re-pasted.
+  // h identifies this exact config, so a cached engine with stale answers is reloaded.
   const h = createHash("sha256").update(JSON.stringify(cfg)).digest("hex").slice(0, 8);
   return { ...cfg, h };
 }

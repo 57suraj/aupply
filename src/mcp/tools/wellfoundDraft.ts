@@ -29,7 +29,6 @@ export function registerWellfoundDraft(server: McpServer): void {
         role_slugs: z.array(z.string().min(2).max(60)).max(12).optional().describe(`Wellfound role slugs, e.g. ${WELLFOUND_ROLE_SLUGS.slice(0, 4).join(", ")}.`),
         pages: z.number().int().min(1).max(2).optional().describe("Default 2 (page 1 and ?page=2)."),
         location: z.string().max(40).optional().describe("Wellfound location slug. Default india."),
-        engine_loaded: z.string().max(40).optional(),
       },
       annotations: READ_ONLY,
     },
@@ -44,11 +43,10 @@ export function registerWellfoundDraft(server: McpServer): void {
         const urls: string[] = [];
         for (const s of slugs) for (let p = 1; p <= (args.pages ?? 2); p++) urls.push(`https://wellfound.com/role/l/${s}/${loc}${p > 1 ? `?page=${p}` : ""}`);
         const cfg = engineConfig(d, "wellfound");
-        return envelope("wellfound", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "wellfound", cfg, {
           pages: urls,
           steps: [
-            "For each URL in pages, in order: navigate to it, load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run await __aupply.scrape(true) on the first page and await __aupply.scrape() on the rest.",
+            "For each URL in pages, in order: navigate to it, load the engine (load_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run await __aupply.scrape(true) on the first page and await __aupply.scrape() on the rest.",
             "After the last page run __aupply.draft() and call queue_jobs with platform 'wellfound' and jobs = its jobs.",
           ],
           rules: ["One page at a time; each scrape scrolls 5 times and takes about 5 seconds."],

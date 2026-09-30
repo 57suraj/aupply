@@ -27,7 +27,6 @@ export function registerNaukriDraft(server: McpServer): void {
         experience: z.array(z.number().int().min(0).max(30)).max(3).optional().describe("Naukri experience filter values. Default: the user's years and one more."),
         job_age_days: z.union([z.literal(1), z.literal(3), z.literal(7)]).optional().describe("Default 1."),
         pages: z.number().int().min(1).max(3).optional().describe("Result pages per search. Default 1."),
-        engine_loaded: z.string().max(40).optional(),
       },
       annotations: READ_ONLY,
     },
@@ -46,11 +45,10 @@ export function registerNaukriDraft(server: McpServer): void {
           urls.push(`https://www.naukri.com/${s}-jobs-in-india${p > 1 ? `-${p}` : ""}?experience=${e}&jobAge=${age}`);
         }
         const cfg = engineConfig(d, "naukri");
-        return envelope("naukri", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "naukri", cfg, {
           pages: urls.slice(0, 16),
           steps: [
-            "For each URL in pages, in order: navigate to it, load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
+            "For each URL in pages, in order: navigate to it, load the engine (load_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
             "After the last page run __aupply.draft() and call queue_jobs with platform 'naukri' and jobs = its jobs.",
           ],
           rules: ["One page at a time. Never call Naukri's /jobapi endpoints (they demand a reCAPTCHA)."],

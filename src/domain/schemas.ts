@@ -361,5 +361,4 @@ export const ApplyJobsInput = {
     .record(z.string().max(2000))
     .optional()
     .describe("Question -> answer, for questions a previous run returned as NEEDS_INPUT (save them with save_answer too)."),
-  engine_loaded: z.string().max(40).optional().describe("`engine` from an earlier response, once loaded_check answered ok in this page, so the parts are not sent again."),
 };

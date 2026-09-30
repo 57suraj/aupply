@@ -1,5 +1,5 @@
-/* LinkedIn 2/4: filling the Easy Apply form, stepping through it, and one job start to
-   finish (job() opens the modal, cont() fills and advances until it is sent). */
+/* LinkedIn apply 2/3: filling the Easy Apply form, stepping through it, and one job start
+   to finish (job() opens the modal, cont() fills and advances until it is sent). */
 function li_fill(X) {
   'use strict';
   const { ME, R, sleep, txt, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, easy, closed, alreadyApplied, CONSENT, NEVERTICK } = X;

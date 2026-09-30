@@ -26,7 +26,6 @@ export function registerIndeedDraft(server: McpServer): void {
         queries: z.array(z.string().min(2).max(100)).max(6).optional().describe("Default: the user's desired roles."),
         locations: z.array(z.string().min(2).max(60)).max(4).optional().describe("Default: the user's city and Remote."),
         fromage: z.union([z.literal(1), z.literal(3)]).optional().describe("Posted within N days. Default 1."),
-        engine_loaded: z.string().max(40).optional(),
       },
       annotations: READ_ONLY,
     },
@@ -42,11 +41,10 @@ export function registerIndeedDraft(server: McpServer): void {
           locations.map((l) => `https://in.indeed.com/jobs?q=${encodeURIComponent(q)}&l=${encodeURIComponent(l)}&fromage=${args.fromage ?? 1}&sort=date`)
         );
         const cfg = engineConfig(d, "indeed");
-        return envelope("indeed", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "indeed", cfg, {
           pages: urls,
           steps: [
-            "For each URL in pages, in order: navigate to it, load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
+            "For each URL in pages, in order: navigate to it, load the engine (load_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
             "After the last page run __aupply.draft() and call queue_jobs with platform 'indeed' and jobs = its jobs.",
           ],
           rules: [

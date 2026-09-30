@@ -33,13 +33,12 @@ export function registerIndeedApply(server: McpServer): void {
         const { list, dropped } = await applyList(userId, "indeed", args, 10);
         if (!list.length) return { nothing_to_apply: true, dropped, next: args.from_queue ? "The queue is empty: run indeed_draft first." : "No job left to prepare." };
         const cfg = engineConfig(await loadUserData(userId), "indeed", { overrides: args.answers });
-        return envelope("indeed", cfg, {
-          engineLoaded: args.engine_loaded,
+        return envelope(userId, "indeed", cfg, {
           jobs: list.map((j) => ({ id: j.id, url: j.url })),
           ...(dropped.length ? { dropped } : {}),
           steps: [
-            "For each job, in a NEW tab: open its url, load the engine (paste_rule), then run await __aupply.drive('<jk>'). Expect NAVIGATED: the tab moves to smartapply.indeed.com.",
-            "In that same tab (now smartapply) load the engine again (paste_rule: smartapply is its own origin, so the first time there loaded_check lists parts), then await __aupply.drive('<jk>') until r is READY_FOR_CAPTCHA. r = CONTINUE: call drive again.",
+            "For each job, in a NEW tab: open its url, load the engine (load_rule), then run await __aupply.drive('<jk>'). Expect NAVIGATED: the tab moves to smartapply.indeed.com.",
+            "In that same tab (now smartapply) load the engine again (load_rule: smartapply is its own origin, so the first time there loaded_check does not answer ok and load_engine sends the parts), then await __aupply.drive('<jk>') until r is READY_FOR_CAPTCHA. r = CONTINUE: call drive again.",
             "Call report_results (platform 'indeed', engine, results) with each final result. Leave every parked tab open.",
             "At the end, tell the user in one message how many tabs are waiting and which company and role each holds.",
           ],

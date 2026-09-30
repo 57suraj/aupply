@@ -1,9 +1,11 @@
-/* LinkedIn 3/4: drafting. sweep() searches the guest API (Easy Apply only, paced at one
-   request a second), then prescreen() reads each job description (1.5s apart, a 10
-   minute pause on the first 429, a stop on the second) and keeps the best ones. */
+/* LinkedIn draft 1/2: drafting. sweep() searches the guest API (Easy Apply only, paced at
+   one request a second), then prescreen() reads each job description (1.5s apart, a 10
+   minute pause on the first 429, a stop on the second) and keeps the best ones. Only the
+   draft engine loads it: applying never needs the screening code. */
 function li_draft(X) {
   'use strict';
-  const { S, ST, SC, P, R, sleep, clean, cut, aid, trackerCount } = X;
+  const { CFG, S, ST, P, payMax, sleep, clean, cut, aid, trackerCount } = X;
+  const SC = CFG.screen || {};
 
   // DOMParser is neutered by Trusted Types, so the guest API HTML is parsed by regex.
   const parseCards = (t) => {
@@ -110,7 +112,7 @@ function li_draft(X) {
     const y = yearsOf(t);
     if (y.minY != null && !y.yu && SC.maxYears != null && y.minY > SC.maxYears) return { v: 'DROP_YEARS' };
     if (y.minY == null && SC.skipMidSenior && /mid-senior|director|executive/i.test(lvl || '')) return { v: 'DROP_MIDSENIOR' };
-    const pay = R.payMax(t);
+    const pay = payMax(t);
     if (pay != null && SC.minPay && pay < SC.minPay) return { v: 'DROP_PAY' };
     const sm = (SC.stack || []).filter((s) => new RegExp(s[1], 'i').test(t)).map((s) => s[0]);
     return { v: 'keep', minY: y.minY, yu: y.yu, lvl: lvl && !/not applicable/i.test(lvl) ? lvl : null, pay, sm };

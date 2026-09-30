@@ -9,6 +9,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ApplyJobsInput } from "../../domain/schemas.js";
+import { asciiJson, h31 } from "../../engines/index.js";
 import { engineConfig, loadUserData, rulesOf } from "../../platforms/config.js";
 import { envelope } from "../../platforms/envelope.js";
 import { applyList, blocked } from "../../platforms/jobs.js";
@@ -23,7 +24,8 @@ export function registerLinkedinApply(server: McpServer): void {
       title: "Apply on LinkedIn (Easy Apply)",
       description:
         "Apply to LinkedIn Easy Apply jobs: pass job ids or links, or from_queue for the drafted queue. Returns the " +
-        "engine for the tracker page (small parts, loaded once per page; see paste_rule) and the runner call. Trims the list to today's remaining quota " +
+        "id of the apply engine for the tracker page (load_engine brings it into the page; see load_rule) and the queue " +
+        "call as a code block. Trims the list to today's remaining quota " +
         "(about 35 a day) and drops jobs already applied to. About 2 minutes per job. Poll with " +
         "await __aupply.wait(35000) and send results to report_results every 5 jobs and at the end.",
       inputSchema: {
@@ -44,18 +46,21 @@ export function registerLinkedinApply(server: McpServer): void {
           return { nothing_to_apply: true, dropped, next: args.from_queue ? "The queue is empty: run linkedin_draft first." : "No job left to apply to." };
         }
         await markQueueStarted(userId, "linkedin");
-        const cfg = engineConfig(d, "linkedin", { overrides: args.answers });
-        const queue = JSON.stringify(list.map((j) => [j.id, j.co]));
-        return envelope("linkedin", cfg, {
-          engineLoaded: args.engine_loaded,
+        const cfg = engineConfig(d, "linkedin", { only: "answers", overrides: args.answers });
+        // The queue travels as its own verbatim block with a checksum: a job id mistyped in
+        // transit would apply to the wrong job.
+        const pairs = list.map((j) => [j.id, j.co]);
+        const runQueue = `__aupply.runQueue(${asciiJson(pairs)},{${args.keep_open ? "keepOpen:true," : ""}k:${h31(JSON.stringify(pairs))}})`;
+        return envelope(userId, "linkedin", cfg, {
           cap_left: cap.left,
           jobs: list.length,
           ...(dropped.length ? { dropped } : {}),
           open: LINKEDIN_TRACKER,
+          code: [{ name: "run", code: runQueue }],
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there, for example right after a draft).`,
-            "Load the engine (paste_rule). Right after a draft in this page it is already loaded: loaded_check answers ok.",
-            `Run __aupply.runQueue(${queue}${args.keep_open ? ", {keepOpen: true}" : ""}).`,
+            "Load the engine (load_rule). Right after a draft in this page only the apply parts are missing: load_engine sends just those.",
+            "Run the `run` block (the queue) as one JavaScript call, copied exactly. It answers 'started'; CORRUPT_QUEUE means copy it again exactly.",
             "Poll await __aupply.wait(35000). Collect the `new` items; call report_results (platform 'linkedin', engine, results) every 5 results, whenever phase leaves 'applying', and at the end with tracker = the status's tracker.",
             "Follow report_results' next (retries, questions for the user, handoffs, stops).",
           ],

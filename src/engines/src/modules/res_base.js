@@ -1,5 +1,5 @@
 /* Answer resolver 1/4: the user's facts from CFG and the parsers shared by the rules and
-   the option picker (money, notice and numeric bands).
+   the option picker (notice and numeric bands; money is in the pay module).
    One ordered rule list serves every engine and resolve_answers on the server; it
    replaced applix's four drifting resolvers. Nothing about a user is hardcoded. The
    rules are in res_rules_a and res_rules_b, A() and the option picker in res_api. */
@@ -35,42 +35,7 @@ function res_base(X) {
   ];
   const techYes = (tail) => (POL.tech === 'skills' && tail && !skillIn(tail) ? null : true);
 
-  // Money: amounts in an option or a posting, in currency units per year.
-  const amounts = (t) => {
-    const s = String(t || '').toLowerCase().replace(/,/g, '');
-    const lakhCtx = /lpa|lakh|lac\b|\d\s*l\b/.test(s);
-    const out = [];
-    s.replace(/(\d+(?:\.\d+)?)\s*(k|lpa|lakhs?|lacs?|l|cr|crores?|mn|m)?\b/g, (all, n, u) => {
-      let x = +n;
-      u = u || '';
-      if (u === 'k') x *= 1e3;
-      else if (/^(lpa|lakhs?|lacs?|l)$/.test(u)) x *= 1e5;
-      else if (/^(cr|crores?)$/.test(u)) x *= 1e7;
-      else if (/^(mn|m)$/.test(u)) x *= 1e6;
-      else if (lakhCtx && x < 1000) x *= 1e5;
-      out.push(x);
-      return all;
-    });
-    return out;
-  };
-  const moneyRange = (t) => {
-    const s = String(t || '').toLowerCase();
-    const a = amounts(s);
-    if (!a.length) return null;
-    const perMonth = /month|\bmo\b|pm\b/.test(s) ? 12 : 1;
-    if (a.length >= 2) return [a[0] * perMonth, a[1] * perMonth];
-    if (/less than|under|below|upto|up to|</.test(s)) return [0, a[0] * perMonth];
-    if (/above|more than|over|\+|and above|or more|>/.test(s)) return [a[0] * perMonth, Infinity];
-    return [a[0] * perMonth, a[0] * perMonth];
-  };
-  // Highest pay a posting states, per year, or null when it states none.
-  const payMax = (t) => {
-    const m = String(t || '').match(/(?:₹|rs\.?|inr)\s*[\d,.]+\s*(?:k|l|lpa|lakhs?|lacs?|cr)?\s*(?:-|–|to)\s*(?:₹|rs\.?|inr)?\s*[\d,.]+\s*(?:k|l|lpa|lakhs?|lacs?|cr)?(?:\s*(?:\/|per|a)\s*(?:yr|year|annum|month|mo))?/i);
-    if (!m) return null;
-    const r = moneyRange(m[0]);
-    return r ? r[1] : null;
-  };
-
+  // Money parsers (moneyRange, payMax) come from the pay module.
   const band = (T, rangeOf, x) => {
     const ranges = T.map((t) => rangeOf(t));
     for (const pass of [0, 1]) {
@@ -124,5 +89,5 @@ function res_base(X) {
   const val = (k, v, extra) => Object.assign({ k, v: has(v) ? v : null }, extra || {});
   const titleWords = (t) => { const w = norm(t).split(' ').filter((x) => x.length > 2); return w.length ? new RegExp(w.map(esc).join('|'), 'i') : null; };
 
-  return { ME, KEYED, norm, OVER, SAVED, has, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, techYes, moneyRange, payMax, band, numRange, daysBand, val, titleWords };
+  return { ME, KEYED, norm, OVER, SAVED, has, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, techYes, band, numRange, daysBand, val, titleWords };
 }
