@@ -11,10 +11,17 @@ skip and outcome.
 It productises the personal automation in `/Users/suraj/applix` (LinkedIn Easy
 Apply, Wellfound, Naukri, Indeed). Its README and RUNBOOK hold the lessons the
 data model is built on: dedup by (platform, job id), provisional vs confirmed
-answers, never inventing personal facts, outcomes that wait on a human.
+answers, never inventing personal facts, outcomes that wait on a human. The newer
+applix knowledge (amendments up to #84, 28 Sep) is in Google Drive folder
+`1ISY883-VdE9OS52xPU2-wDLfbfbWOrJ0`; list it and read by title, since file ids change.
 
-**Status:** backend works end to end (OAuth connector, 13 MCP tools, dashboard
-API). Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
+**Status:** backend works end to end (OAuth connector, 26 MCP tools, dashboard
+API): 13 data tools (including `resolve_answers` and `update_profile`, which onboards a
+user from their resume), `start_session` / `end_session`, and 11
+automation tools (draft and apply on LinkedIn, Naukri, Wellfound, Indeed, plus
+`queue_jobs` and `report_results`). The automation tools are **built but not yet
+live-tested in a browser**: see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
+nice-to-have**, so automation work comes before dashboard work. Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
 the other sections are still placeholders ("coming in next phase"), leave them until asked. **Payments are on hold**: the provider is undecided, so do
 not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
 
@@ -27,7 +34,14 @@ not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
   `mcpAuthRouter`), consent API, Supabase-session middleware for `/api`.
 - `src/services`: all data access, shared by MCP tools and REST routes.
 - `src/domain/schemas.ts`: zod inputs and enums; enums mirror the DB CHECK constraints.
-- `src/mcp/tools`: one file per tool; `src/mcp/toolkit.ts` wraps auth, errors, compact JSON.
+- `src/mcp/tools`: one file per tool; `src/mcp/toolkit.ts` wraps auth, errors, compact JSON
+  (it drops null/empty values, so an empty array comes back missing).
+- `src/engines/src`: the browser scripts (plain JS, `shared/` inlined into each).
+  `scripts/build-engines.mjs` parse-checks, minifies and hashes them into
+  `src/engines/generated.ts`, which is committed. After editing a script run
+  `npm run build:engines` and commit the generated file.
+- `src/platforms`: job ids, platform knowledge, per-user engine config, result mapping.
+  `src/services/automation.ts`: queue, results, backoffs, LinkedIn cap.
 - `src/api`: dashboard REST routes (thin: parse with zod, call a service).
 - `supabase/migrations`: schema source of truth; `src/db/database.types.ts` is generated.
 - `scripts/e2e.mjs`: end-to-end suite (`npm run e2e`). Run it after backend changes.
@@ -119,9 +133,55 @@ Domain semantics:
 - `application_questions`: per-application Q&A log, trigram-searched with saved answers.
 - `oauth_clients` / `oauth_grants` / `oauth_authorization_codes`: connector auth.
   A grant is a "connection" (listed and revoked at `/api/connections`).
+- `platform_state`: per user and scope (a platform, or `linkedin_guest` for LinkedIn's
+  guest API): rate-limit backoffs (`blocked_until`) and small machine state. Written only
+  by the server; the platform tools refuse to issue a script while a backoff is active.
+- `applications.external_id` must be the canonical job id for linkedin, naukri,
+  wellfound and indeed (DB CHECK `applications_external_id_canonical`); every write goes
+  through `canonicalJobId()` in `src/platforms/ids.ts`. The queue is `status =
+  'discovered'` with `metadata.needs_decision` false (index `applications_queue`).
 - Resume files live in private bucket `resumes` at `<user_id>/<resume_id>/<file_name>`;
   the browser uploads via a signed URL, then `POST /api/resumes/:id/file` extracts text
   (PDF, DOCX, txt, md; legacy .doc is stored but not parsed).
+
+## Automation tools (built, not live-tested)
+
+Full design: `docs/automation-tools.md`. Read it before touching anything under
+`src/engines`, `src/platforms`, `src/answers` or `src/screening`. The rules that hold
+everywhere:
+
+- **Priorities, in order:** never hit a platform's rate limit (a hard constraint that
+  outranks everything, including daily targets and speed); automation; accuracy; fewest
+  tokens and most determinism (scripts and server code decide, Claude executes). Time
+  does not matter. The rate-limit table is in `docs/automation-tools.md` ("Rate
+  limits"); pacing lives inside the engines and backoffs on the server, never in
+  Claude's hands.
+
+- Platform scripts run in the user's browser through Claude's browser tool. Aupply's
+  servers never contact a job site, and there is no Aupply extension: Aupply only
+  hands the user's own Claude the scripts and instructions.
+- "Drafting" means building the apply queue (LinkedIn: the day's 30 to 40 best jobs).
+  Apply tools submit, taking ids or links or `from_queue`; there is no
+  fill-without-submit mode. Indeed always stops at the CAPTCHA for the user.
+- Technology questions: while drafting, jobs whose JD names a main technology the user
+  doesn't list are asked about in one batch; inside an application every technology
+  or stack question is answered Yes.
+- One tool per platform per action (`linkedin_draft`, `linkedin_apply`, `naukri_*`,
+  `wellfound_*`, `indeed_*`); shared tools for data (`check_applied`, `queue_jobs`,
+  `report_results`, `resolve_answers`, `update_profile`, `start_session`, `end_session`).
+- Job identity: `applications.external_id` is the platform's canonical job id (LinkedIn
+  numeric id, Naukri 12-digit id, Wellfound numeric id, Indeed `jk`), never a URL or
+  slug, canonicalised by one function on every write and lookup. Drafts run
+  `check_applied` (one lookup on the unique index) before any costly step. LinkedIn
+  drafts are Easy Apply only.
+- LinkedIn scripts are pasted as the browser tool's source, never loaded with `eval`
+  (the page's CSP blocks it, even on the tracker page after the first load).
+- One engine per platform, built and parse-checked in this repo, versioned by hash.
+  Personal values reach an engine only as generated config, never in its source.
+- One answer registry shared by every engine and `resolve_answers`; one screening
+  module compiled from preferences, used in the page and on the server.
+- The queue is `applications` with status `discovered`. Retry, cap and stop rules live
+  in `report_results`, not in prose.
 
 ## Open decisions
 
@@ -129,6 +189,12 @@ Domain semantics:
   resumes it: the webhook derives `current_period_end` from `billing_cycle_anchor + 30d`,
   which is in the past after month one; use the subscription item's `current_period_end`.
 - Dashboard UI for the new API (profile, resumes, answers, applications, connections).
+  Low priority: nice-to-have, not the selling point.
 - Custom SMTP, then re-enable email confirmation.
 - The frontend uses the legacy anon JWT key; can move to the `sb_publishable_` key.
+- Automation: India only for v1 is assumed, not confirmed (`docs/automation-tools.md`
+  section 15).
+- Live test of the automation tools in the user's browser. The Naukri and Wellfound
+  engines are ports of the 16 Sep scripts; the newer copies (28 Sep Wellfound, Naukri
+  `answer()` patches, Indeed v2) exist only in the Claude project "apply".
 - Later: pgvector for semantic answer matching, `org_id` if teams ever arrive.

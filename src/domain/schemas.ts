@@ -286,3 +286,80 @@ export const RunInput = z
     metadata: metadata.optional(),
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// Automation (platform tools). Engine output is forwarded as-is, so these accept the
+// engines' short keys (t = title, co = company, ...).
+// ---------------------------------------------------------------------------
+
+export const SCRIPTED_PLATFORMS = ["linkedin", "naukri", "wellfound", "indeed"] as const;
+
+const short = (max: number) => z.string().max(max).optional();
+
+export const DraftJob = z
+  .object({
+    id: z.string().min(1).max(300).describe("Job id or URL, as the script returned it."),
+    t: short(300), co: short(300), loc: short(300), w: short(10),
+    agg: z.number().optional(), minY: z.number().optional(), yu: z.number().optional(),
+    lvl: short(60), pay: z.number().optional(), sm: z.array(z.string().max(60)).max(40).optional(),
+    s: short(200), ye: z.number().nullable().optional(), sal: short(120), ex: short(60),
+  })
+  .passthrough();
+
+export const QueueJobsInput = z
+  .object({
+    platform: z.enum(SCRIPTED_PLATFORMS),
+    source: z.enum(["sweep", "alert_email", "connector", "link", "manual"]).default("sweep"),
+    run_id: z.string().uuid().optional(),
+    jobs: z.array(DraftJob).max(300).default([]).describe("The script's kept jobs (`keep` or `jobs`), passed as-is."),
+    skipped: z
+      .array(z.object({ id: z.string().min(1).max(300), r: z.string().max(60), t: short(300), co: short(300) }).passthrough())
+      .max(500)
+      .default([])
+      .describe("The script's dropped jobs (`drop`), passed as-is, so no later draft screens them again."),
+    decisions: z
+      .array(z.object({ id: z.string().min(1).max(300), keep: z.boolean() }))
+      .max(100)
+      .optional()
+      .describe("The user's answers to an earlier ask_user: keep or drop each job."),
+    stop: z.string().max(100).optional().describe("The script's `stop`, if it reported one."),
+    tracker: z.number().int().nullable().optional().describe("LinkedIn: the Applied count the sweep read."),
+  })
+  .strict();
+
+export const EngineResult = z
+  .object({
+    id: z.string().max(300).optional(),
+    r: z.string().max(40),
+    a: z.string().max(20).optional(),
+    t: short(300), co: short(300),
+    need: z.array(z.string().max(400)).max(20).optional(),
+    qa: z.array(z.tuple([z.string().max(300), z.string().max(300)])).max(30).optional(),
+    n: z.number().optional(), y: z.number().optional(), code: z.number().optional(), why: short(60),
+  })
+  .passthrough();
+
+export const ReportResultsInput = z
+  .object({
+    platform: z.enum(SCRIPTED_PLATFORMS),
+    run_id: z.string().uuid().optional(),
+    engine: short(40).describe("The `engine` id from the tool that issued the script."),
+    results: z.array(EngineResult).min(1).max(100).describe("The `new` items from status()/wait(), passed as-is."),
+    tracker: z
+      .object({ before: z.number().nullable().optional(), after: z.number().nullable().optional() })
+      .passthrough()
+      .optional()
+      .describe("LinkedIn: status().tracker once the queue is done."),
+  })
+  .strict();
+
+export const ApplyJobsInput = {
+  jobs: z.array(z.string().min(1).max(500)).max(50).optional().describe("Job ids or links, in any mix."),
+  from_queue: z.boolean().optional().describe("Apply to the drafted queue, best first."),
+  limit: z.number().int().min(1).max(50).optional(),
+  answers: z
+    .record(z.string().max(2000))
+    .optional()
+    .describe("Question -> answer, for questions a previous run returned as NEEDS_INPUT (save them with save_answer too)."),
+  engine_loaded: z.string().max(40).optional().describe("The engine id already loaded in this page, to skip re-sending the script."),
+};

@@ -1,8 +1,8 @@
 /**
  * Tool: check_applied
  *
- * Cheap dedup before spending effort on a job: which job ids and companies
- * the user has already touched, with their status.
+ * Cheap dedup before spending anything on a job: one lookup on the unique index for a
+ * batch of ids (any form: ids, links, URNs), plus companies already touched.
  */
 
 import { z } from "zod";
@@ -17,13 +17,13 @@ export function registerCheckApplied(server: McpServer): void {
     {
       title: "Check for duplicates",
       description:
-        "Before applying, check a batch of jobs against everything already recorded. Pass the " +
-        "platform and its job ids, and/or company names (matched case-insensitively across all " +
-        "platforms). Returns the jobs and companies already known, with status. Skip jobs already " +
-        "applied to or skipped; think twice about companies that already have an application.",
+        "Before any costly step on a batch of jobs, check which ones Aupply already knows for this user (applied, " +
+        "skipped, queued, closed). Pass the platform and its job ids or links; ids are normalised, so a link and a " +
+        "bare id match. Returns new (never seen) and known ([id, status] pairs), plus companies already touched " +
+        "(matched case-insensitively across platforms). In a LinkedIn draft, pass the known ids to prescreen as skip.",
       inputSchema: {
         platform: z.string().optional().describe("e.g. linkedin. Omit to match job ids on any platform."),
-        external_ids: z.array(z.string().max(200)).max(500).optional().describe("The platform's own job ids."),
+        external_ids: z.array(z.string().max(500)).max(500).optional().describe("The platform's job ids or links."),
         companies: z.array(z.string().max(300)).max(200).optional(),
       },
       annotations: READ_ONLY,

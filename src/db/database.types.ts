@@ -507,6 +507,36 @@ export type Database = {
           },
         ]
       }
+      platform_state: {
+        Row: {
+          block_reason: string | null
+          blocked_until: string | null
+          created_at: string
+          platform: string
+          state: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          block_reason?: string | null
+          blocked_until?: string | null
+          created_at?: string
+          platform: string
+          state?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          block_reason?: string | null
+          blocked_until?: string | null
+          created_at?: string
+          platform?: string
+          state?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       preferences: {
         Row: {
           created_at: string

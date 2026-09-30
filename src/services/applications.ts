@@ -9,8 +9,9 @@
 import type { z } from "zod";
 import { getSupabaseClient } from "../db/supabase.js";
 import type { Json } from "../db/database.types.js";
-import { check, notFound, unwrap, unwrapMaybe } from "../lib/errors.js";
+import { AppError, check, notFound, unwrap, unwrapMaybe } from "../lib/errors.js";
 import { escapeLike, markAnswersUsed } from "./answers.js";
+import { canonicalJobId, isScripted, tryCanonicalJobId } from "../platforms/ids.js";
 import type {
   ApplicationInput,
   ApplicationListQuery,
@@ -75,6 +76,10 @@ export async function getApplication(userId: string, id: string) {
  */
 export async function logApplication(userId: string, input: z.infer<typeof ApplicationInput>) {
   const { questions, metadata, ...fields } = input;
+  if (fields.external_id) fields.external_id = canonicalJobId(fields.platform, fields.external_id);
+  else if (isScripted(fields.platform)) {
+    throw new AppError(`A ${fields.platform} application needs the platform's job id (external_id).`);
+  }
   const row = { ...fields, ...(metadata ? { metadata: metadata as Json } : {}), user_id: userId };
 
   const application = unwrap(
@@ -132,20 +137,43 @@ export async function deleteApplication(userId: string, id: string) {
   if (!rows.length) throw notFound("Application");
 }
 
-/** Dedup check before applying: known job ids and companies already touched. */
+/**
+ * Dedup check before any costly step: which job ids this user already has on the
+ * platform (one lookup on the unique index) and which companies were touched. Ids are
+ * canonicalised first, so a URL and a bare id match the same job.
+ */
 export async function checkExisting(
   userId: string,
   params: { platform?: string; external_ids?: string[]; companies?: string[] }
 ) {
-  return unwrap(
+  const invalid: string[] = [];
+  const ids = [
+    ...new Set(
+      (params.external_ids ?? [])
+        .map((raw) => {
+          const id = params.platform ? tryCanonicalJobId(params.platform, raw) : raw.trim();
+          if (!id) invalid.push(raw.slice(0, 80));
+          return id;
+        })
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const found = unwrap(
     await db().rpc("check_existing_applications", {
       p_user_id: userId,
       // The generated type says string, but the function treats NULL as "any platform".
       p_platform: (params.platform ?? null) as string,
-      p_external_ids: params.external_ids ?? [],
+      p_external_ids: ids,
       p_companies: params.companies ?? [],
     })
-  );
+  ) as { jobs: { external_id: string; status: string }[]; companies: unknown[] };
+  const known = new Map(found.jobs.map((j) => [j.external_id, j.status]));
+  return {
+    new: ids.filter((id) => !known.has(id)),
+    known: [...known.entries()],
+    companies: found.companies,
+    ...(invalid.length ? { invalid } : {}),
+  };
 }
 
 export async function getStats(userId: string) {
@@ -171,14 +199,15 @@ async function resolveApplication(
     if (!row) throw notFound("Application");
     return { id: row.id, matched_by: "application_id" };
   }
-  if (ref.platform && ref.external_id) {
+  const jobId = ref.platform && ref.external_id ? tryCanonicalJobId(ref.platform, ref.external_id) : null;
+  if (ref.platform && jobId) {
     const row = unwrapMaybe(
       await db()
         .from("applications")
         .select("id")
         .eq("user_id", userId)
         .eq("platform", ref.platform)
-        .eq("external_id", ref.external_id)
+        .eq("external_id", jobId)
         .maybeSingle()
     );
     if (row) return { id: row.id, matched_by: "platform_job_id" };

@@ -178,3 +178,67 @@ export async function updatePreferences(userId: string, patch: z.infer<typeof Pr
       .single()
   );
 }
+
+// ---------------------------------------------------------------------------
+// Whole-profile save (MCP update_profile): one call to onboard from a resume.
+// A list passed for experiences or educations replaces the stored list.
+// ---------------------------------------------------------------------------
+
+export async function saveProfile(
+  userId: string,
+  input: {
+    profile?: z.infer<typeof ProfilePatch>;
+    preferences?: z.infer<typeof PreferencesPatch>;
+    experiences?: z.infer<typeof ExperienceInput>[];
+    educations?: z.infer<typeof EducationInput>[];
+  }
+) {
+  const saved: string[] = [];
+  if (input.profile && Object.keys(input.profile).length) {
+    await updateProfile(userId, input.profile);
+    saved.push(...Object.keys(input.profile).map((k) => `profile.${k}`));
+  }
+  if (input.preferences && Object.keys(input.preferences).length) {
+    await updatePreferences(userId, input.preferences);
+    saved.push(...Object.keys(input.preferences).map((k) => `preferences.${k}`));
+  }
+  for (const [table, rows] of [
+    ["work_experiences", input.experiences],
+    ["educations", input.educations],
+  ] as const) {
+    if (!rows) continue;
+    unwrap(await db().from(table).delete().eq("user_id", userId).select("id"));
+    if (rows.length) {
+      unwrap(
+        await db()
+          .from(table)
+          .insert(rows.map((r, i) => ({ ...asJson(r), sort_order: r.sort_order ?? i, user_id: userId })) as never, { defaultToNull: false })
+          .select("id")
+      );
+    }
+    saved.push(`${table} (${rows.length})`);
+  }
+  return { saved, missing: setupGaps(await getProfile(userId), await getPreferences(userId)) };
+}
+
+type ProfileRow = Awaited<ReturnType<typeof getProfile>>;
+type PreferencesRow = Awaited<ReturnType<typeof getPreferences>>;
+
+/** Facts the apply scripts need before a first run; each gap means a stop mid-form. */
+export function setupGaps(p: ProfileRow, pr: PreferencesRow): string[] {
+  const gaps: [boolean, string][] = [
+    [!pr.desired_roles.length && !p.current_title, "preferences.desired_roles (what to search for)"],
+    [!p.full_name, "profile.full_name"],
+    [!p.phone, "profile.phone"],
+    [!p.email, "profile.email"],
+    [!p.location_city || !p.location_country, "profile.location_city / location_country"],
+    [p.years_experience == null, "profile.years_experience"],
+    [!p.skills.length, "profile.skills (drafts ask about every stack not listed here)"],
+    [!p.current_title, "profile.current_title"],
+    [p.notice_period_days == null, "profile.notice_period_days"],
+    [p.current_salary == null, "profile.current_salary (+ currency, period)"],
+    [pr.expected_salary == null, "preferences.expected_salary"],
+    [pr.max_years_required == null, "preferences.max_years_required (skip jobs asking for more)"],
+  ];
+  return gaps.filter(([missing]) => missing).map(([, name]) => name);
+}

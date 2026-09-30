@@ -8,10 +8,11 @@
     "dev:server": "tsx watch src/server.ts",
     "dev:client": "vite",
     "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "tsc && vite build",
+    "build": "npm run build:engines && tsc && vite build",
     "start": "NODE_ENV=production node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "build:engines": "node scripts/build-engines.mjs"
   },
   "keywords": [
     "mcp",
@@ -45,6 +46,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.6.1",
     "concurrently": "^10.0.5",
+    "esbuild": "^0.28.2",
     "jszip": "^3.10.2",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.19",

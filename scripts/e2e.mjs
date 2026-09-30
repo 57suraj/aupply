@@ -280,10 +280,10 @@ async function main() {
   section("MCP session");
   const init = await mcp(accessA, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   expect("initialize with token", init.status === 200 && init.body?.result?.serverInfo?.name === "Aupply", init.body);
-  expect("server instructions sent", (init.body?.result?.instructions || "").includes("get_pending_actions"), init.body?.result);
+  expect("server instructions sent", (init.body?.result?.instructions || "").includes("start_session"), init.body?.result);
   const list = await mcp(accessA, "tools/list", {});
   const toolNames = (list.body?.result?.tools || []).map((t) => t.name).sort();
-  expect("13 tools listed", toolNames.length === 13, toolNames);
+  expect("26 tools listed", toolNames.length === 26, toolNames);
 
   let r = await tool(accessA, "get_pending_actions");
   expect("get_pending_actions (empty)", !r.isError && Array.isArray(r.data) && r.data.length === 0, r.data);
@@ -294,18 +294,34 @@ async function main() {
   r = await tool(accessA, "get_resume");
   expect("get_resume with none -> tool error", r.isError && /not found/i.test(String(r.data)), r.data);
 
-  const run = await tool(accessA, "log_run", { client: "e2e" });
-  expect("log_run opens a run", !run.isError && run.data.id, run.data);
-  const runId = run.data?.id;
+  const run = await tool(accessA, "start_session", { client: "e2e" });
+  expect("start_session opens a run with platform state and inbox queries", !run.isError && run.data.run_id && run.data.platforms?.linkedin?.cap_left === 35 && run.data.inbox_queries?.length >= 2, run.data);
+  const runId = run.data?.run_id;
+  expect("start_session flags setup_needed on an empty profile", run.data?.setup_needed?.some((g) => g.startsWith("preferences.desired_roles")) && run.data.next?.[0]?.includes("update_profile"), run.data?.setup_needed);
 
-  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["123"] });
-  expect("check_applied before", !r.isError && !r.data.jobs, r.data);
+  r = await tool(accessA, "update_profile", {
+    profile: { languages: ["English", "Telugu"] },
+    experiences: [
+      { company: "Acme", title: "Engineer", start_date: "2024-01-01", is_current: true },
+      { company: "Beta", title: "Intern", start_date: "2023-01-01", end_date: "2023-06-30" },
+    ],
+    educations: [{ institution: "MLRIT", degree: "B.Tech" }],
+  });
+  expect("update_profile saves profile and lists", !r.isError && r.data.saved?.includes("profile.languages") && r.data.saved?.includes("work_experiences (2)") && r.data.missing?.length > 0, r.data);
+  r = await tool(accessA, "update_profile", { experiences: [], educations: [] });
+  r = await tool(accessA, "get_candidate_profile");
+  expect("update_profile lists replace (empty clears)", !r.isError && !r.data.work_experiences && !r.data.educations && r.data.profile?.languages?.length === 2, r.data);
+  r = await tool(accessA, "update_profile", { profile: { user_id: "x" } });
+  expect("update_profile rejects unknown fields", r.isError, r.data);
+
+  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471873921"] });
+  expect("check_applied before", !r.isError && r.data.new?.length === 1 && !r.data.known, r.data);
   r = await tool(accessA, "check_applied", {});
   expect("check_applied with no input -> tool error", r.isError, r.data);
 
   const logged = await tool(accessA, "log_application", {
     platform: "LinkedIn",
-    external_id: "123",
+    external_id: "https://www.linkedin.com/jobs/view/backend-engineer-at-acme-4471873921/",
     company_name: "Acme Corp",
     job_title: "Backend Engineer",
     status: "unconfirmed",
@@ -317,15 +333,15 @@ async function main() {
   expect("log_application (normalises platform/currency)", !logged.isError && logged.data.platform === "linkedin" && logged.data.salary_currency === "INR" && logged.data.questions_logged === 1, logged.data);
   expect("applied_at stamped for unconfirmed", Boolean(logged.data?.applied_at), logged.data);
   const appId = logged.data?.id;
-  r = await tool(accessA, "log_application", { platform: "linkedin", external_id: "123", company_name: "Acme Corp", job_title: "Backend Engineer", status: "applied" });
+  r = await tool(accessA, "log_application", { platform: "linkedin", external_id: "4471873921", company_name: "Acme Corp", job_title: "Backend Engineer", status: "applied" });
   expect("log_application upserts same job", !r.isError && r.data.id === appId && r.data.status === "applied" && r.data.salary_min === 1000000, r.data);
-  r = await tool(accessA, "log_application", { platform: "wellfound", company_name: "Skipco", job_title: "Java Dev", status: "skipped", status_reason: "Java stack" });
+  r = await tool(accessA, "log_application", { platform: "company_site", company_name: "Skipco", job_title: "Java Dev", status: "skipped", status_reason: "Java stack" });
   expect("log_application skip without external_id", !r.isError && r.data.status === "skipped", r.data);
   r = await tool(accessA, "log_application", { platform: "linkedin", company_name: "X", job_title: "Y", status: "bogus" });
   expect("invalid status rejected", r.isError || r.raw?.error, r.raw);
 
-  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["123", "999"], companies: ["ACME CORP"] });
-  expect("check_applied finds job and company", !r.isError && r.data.jobs?.length === 1 && r.data.companies?.[0]?.submitted === 1, r.data);
+  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["urn:li:jobPosting:4471873921", "4471873999"], companies: ["ACME CORP"] });
+  expect("check_applied finds job (any id form) and company", !r.isError && r.data.known?.length === 1 && r.data.new?.length === 1 && r.data.companies?.[0]?.submitted === 1, r.data);
 
   r = await tool(accessA, "save_answer", { question: "What is your notice period?", answer: "15 days", key: "notice_period", confirmed_by_user: true });
   expect("save_answer confirmed", !r.isError && r.data.saved === true && r.data.answer.status === "confirmed", r.data);
@@ -334,12 +350,25 @@ async function main() {
   expect("provisional does not overwrite confirmed", !r.isError && r.data.saved === false && r.data.answer.answer === "15 days", r.data);
   r = await tool(accessA, "save_answer", { question: "Are you willing to work night shifts?", answer: "Yes" });
   expect("save_answer provisional", !r.isError && r.data.answer.status === "provisional" && r.data.answer.source === "claude", r.data);
-  r = await tool(accessA, "find_answers", { question: "notice period" });
-  const sources = new Set((r.data || []).map((a) => a.source));
-  expect("find_answers returns saved + history", !r.isError && sources.has("saved") && sources.has("history"), r.data);
+  r = await tool(accessA, "resolve_answers", {
+    questions: [
+      { q: "What is your notice period?" },
+      { q: "Are you willing to work night shifts?", options: ["Yes", "No"] },
+      { q: "Date of birth" },
+      { q: "notice period" },
+      { q: "Favourite colour?" },
+    ],
+  });
+  const ra = r.data || [];
+  expect(
+    "resolve_answers: saved, option, protected, similar, unknown",
+    !r.isError && ra[0]?.source === "saved" && ra[0]?.status === "confirmed" && ra[1]?.option === "Yes" && ra[1]?.status === "provisional" &&
+      ra[2]?.status === "protected" && ["saved", "history"].includes(ra[3]?.source) && ra[4]?.status === "unknown",
+    ra
+  );
 
   r = await tool(accessA, "log_application", {
-    platform: "naukri", external_id: "n-1", company_name: "Beta", job_title: "Dev", status: "applied",
+    platform: "naukri", external_id: "280926903708", company_name: "Beta", job_title: "Dev", status: "applied",
     questions: [{ question: "Notice period?", answer: "15 days", answer_id: answerId }],
   });
   const { data: usedAnswer } = await admin.from("answers").select("times_used").eq("id", answerId).single();
@@ -363,8 +392,8 @@ async function main() {
   expect("get_application_history filter", !r.isError && r.data.total === 2, r.data);
   r = await tool(accessA, "get_application_stats");
   expect("get_application_stats", !r.isError && r.data.submitted === 2 && r.data.responded === 1 && r.data.by_status?.skipped === 1, r.data);
-  r = await tool(accessA, "log_run", { run_id: runId, summary: "e2e", stats: { linkedin: 1 }, ended: true });
-  expect("log_run closes the run", !r.isError && r.data.ended_at, r.data);
+  r = await tool(accessA, "end_session", { run_id: runId, summary: "e2e", hurdles: "none" });
+  expect("end_session closes the run with DB counts and a funnel", !r.isError && r.data.counts_by_platform?.linkedin?.applied === 1 && r.data.funnel_30d?.submitted === 2, r.data);
 
   section("Dashboard API");
   const noAuth = await http("GET", "/api/profile");
@@ -450,6 +479,33 @@ async function main() {
   expect("DOCX text extracted and replaces PDF text", a.status === 200 && a.body.content_replaced && a.body.resume.content === "Word Resume TypeScript FastAPI", a.body);
   const { data: oldFile } = await admin.storage.from("resumes").list(`${userId}/${resumeId}`);
   expect("replaced file removed from storage", oldFile?.length === 1 && oldFile[0].name === "resume.docx", oldFile);
+
+  section("Automation tools");
+  r = await tool(accessA, "linkedin_draft", {});
+  expect("linkedin_draft returns the engine and steps", !r.isError && typeof r.data.inject === "string" && r.data.inject.includes("__aupply") && !r.data.inject.includes("__AUPPLY_CFG__") && r.data.steps?.length === 6, r.data?.engine ?? r.data);
+  const liEngine = r.data?.engine?.split("@")[1];
+  r = await tool(accessA, "linkedin_draft", { engine_loaded: liEngine });
+  expect("engine_loaded skips re-sending the script", !r.isError && r.data.inject === undefined, Object.keys(r.data || {}));
+  r = await tool(accessA, "queue_jobs", {
+    platform: "linkedin",
+    jobs: [{ id: "4471000001", t: "Backend Engineer", co: "Qco", w: "1h" }, { id: "https://www.linkedin.com/jobs/view/4471000002/", t: "SDE", co: "Rco", sm: ["Java"] }],
+    skipped: [{ id: "4471000003", r: "DROP_YEARS", t: "Senior Dev", co: "Sco" }],
+  });
+  expect("queue_jobs queues, asks, skips", !r.isError && r.data.counts?.queued === 1 && r.data.ask_user?.[0]?.id === "4471000002" && r.data.counts.skipped === 1, r.data);
+  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471000001", "urn:li:jobPosting:4471000003", "4471000009"] });
+  expect("check_applied sees queued and skipped jobs", !r.isError && r.data.new?.length === 1 && r.data.known.length === 2, r.data);
+  r = await tool(accessA, "linkedin_apply", { from_queue: true, engine_loaded: liEngine });
+  expect("linkedin_apply takes the queue, not undecided jobs", !r.isError && r.data.jobs === 1 && r.data.steps?.[2]?.includes('"4471000001"'), r.data);
+  r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
+  expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);
+  r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000002", r: "NO_MODAL", a: "att2" }] });
+  expect("first NO_MODAL is retried", !r.isError && r.data.next?.some((n) => n.includes("Retry once")), r.data);
+  r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000009", r: "DAILY_LIMIT", a: "att3" }] });
+  expect("DAILY_LIMIT stops LinkedIn", !r.isError && r.data.stopped?.scope === "linkedin", r.data);
+  r = await tool(accessA, "linkedin_apply", { jobs: ["4471000009"] });
+  expect("blocked platform refuses scripts", !r.isError && r.data.blocked === true, r.data);
+  r = await tool(accessA, "log_application", { platform: "linkedin", external_id: "not-an-id", company_name: "X", job_title: "Y", status: "applied" });
+  expect("non-canonical LinkedIn id rejected", r.isError, r.data);
 
   section("Refresh, revoke, replay");
   const refresh1 = await http("POST", "/token", { form: { grant_type: "refresh_token", refresh_token: flowA.token.body.refresh_token, client_id: clientId } });
