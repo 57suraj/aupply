@@ -43,7 +43,7 @@ import { BASE_URL, ISSUER, RESOURCE_URL, SCOPES } from "./config.js";
 import { oauthProvider } from "./auth/oauthProvider.js";
 import { consentRouter } from "./auth/consentRoutes.js";
 import { requireUser } from "./auth/supabaseUser.js";
-import { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION } from "./mcp/server.js";
+import { createMcpServer, MCP_SERVER_NAME, MCP_SERVER_VERSION, staleToolCall } from "./mcp/server.js";
 import { stripeRouter, stripeWebhookHandler } from "./api/stripe.js";
 import { userRouter } from "./api/user.js";
 import { candidateRouter } from "./api/candidate.js";
@@ -160,6 +160,11 @@ const mcpAuth = requireBearerAuth({
 });
 
 app.post("/mcp", mcpAuth, async (req, res) => {
+  const stale = staleToolCall(req.body);
+  if (stale) {
+    res.json(stale);
+    return;
+  }
   try {
     const server = createMcpServer();
     const transport = new StreamableHTTPServerTransport({

@@ -197,6 +197,13 @@ everywhere:
   has consequences carries a checksum (the LinkedIn queue's job ids). A failed block (a
   SyntaxError or a `corrupt ...` answer) is copied again; after 3 failures Claude stops
   and reports the exact error, never applies by hand or asks the user to paste code.
+- A chat keeps the tool list and instructions it read when its connector was added until
+  the connector is reconnected (30 Sep: a Claude in Chrome chat still had the first
+  deploy's tools, called `log_run`, and clicked through LinkedIn by hand, so none of the
+  new flow ran). After changing tools: reconnect the connector and start a new chat before
+  a live test. The server answers a call to an unknown tool with a message saying so
+  (`staleToolCall` in `src/mcp/server.ts`), and the instructions forbid clicking through
+  job boards by hand and screenshot verification.
 - Parts are at most 8KB and loaded by Claude, never the user. Never `eval` on LinkedIn
   (CSP, even on the tracker page after the first load); on Naukri, Wellfound and Indeed
   the engine caches itself in page storage and `loaded_check` re-loads it with no server

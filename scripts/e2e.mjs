@@ -330,6 +330,8 @@ async function main() {
   const list = await mcp(accessA, "tools/list", {});
   const toolNames = (list.body?.result?.tools || []).map((t) => t.name).sort();
   expect("27 tools listed", toolNames.length === 27 && toolNames.includes("load_engine"), toolNames);
+  const gone = await mcp(accessA, "tools/call", { name: "log_run", arguments: {} });
+  expect("a removed tool answers with how to recover, not a bare error", gone.status === 200 && gone.body?.result?.isError === true && /reconnect the Aupply connector/.test(gone.body.result.content?.[0]?.text ?? ""), gone.body);
 
   let r = await tool(accessA, "get_pending_actions");
   expect("get_pending_actions (empty)", !r.isError && Array.isArray(r.data) && r.data.length === 0, r.data);

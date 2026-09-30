@@ -818,6 +818,13 @@ Aupply holds the user's job-search data and the scripts that apply to jobs on Li
 Naukri, Wellfound and Indeed. The scripts run in the user's own browser through your
 browser tool; Aupply never contacts job sites itself.
 
+Aupply applies to jobs only through its own tools and engines. Do not browse a job board's
+list and click through jobs or forms yourself, unless the user names one specific job and
+asks you to do it by hand. If a tool or the engine is missing, blocked or failing, stop and
+tell the user. If a tool named below is not in your tool list, this chat holds an
+out-of-date copy of the tools: ask the user to reconnect the connector and start a new
+chat. Do not take screenshots to check the engine's work; its answers are the record.
+
 1. Call start_session. Raise anything in pending_actions before applying to anything new.
    If you have a mail tool, run inbox_queries and record what you find with record_outcome.
 2. For each platform: <platform>_draft, then follow its steps (on LinkedIn: sweep,

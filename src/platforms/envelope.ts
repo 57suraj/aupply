@@ -9,6 +9,12 @@ import type { EngineName } from "../engines/index.js";
 import { codeBlock, issueEngine } from "../services/engines.js";
 import { Reply } from "../mcp/toolkit.js";
 
+/** Added to every platform tool's rules: the failures seen in live tests were Claude
+    improvising by hand (clicking through the job list) and screenshotting to verify. */
+const ONLY_THE_ENGINE =
+  "Only the engine applies: do not open job lists, click jobs or fill forms yourself, and do not take screenshots to verify its " +
+  "work (its answers are the record) unless a step or rule here asks for one.";
+
 const LOAD_RULE =
   "Load the engine into this page with load_engine, never by hand. (1) Run the loaded_check block (the text block after this " +
   "JSON) in the page with your browser tool's JavaScript execution. It answers 'ok' when the engine is ready: go to the steps. " +
@@ -38,7 +44,7 @@ export async function envelope(
   const { steps, rules, code, ...rest } = body;
   const issued = await issueEngine(userId, engine, cfg);
   return new Reply(
-    { engine: issued.id, ...rest, steps, ...(rules?.length ? { rules } : {}), load_rule: LOAD_RULE },
+    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE], load_rule: LOAD_RULE },
     [codeBlock("loaded_check", issued.loadedCheck), ...(code ?? []).map((c) => codeBlock(c.name, c.code))]
   );
 }
