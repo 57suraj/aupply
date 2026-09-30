@@ -23,10 +23,10 @@ export function registerLinkedinDraft(server: McpServer): void {
       title: "Draft the LinkedIn queue",
       description:
         "Build today's LinkedIn Easy Apply queue: the 30 to 40 best new jobs for the user, screened by their " +
-        "preferences, minus everything Aupply already knows. Returns a script to paste into the user's browser on " +
-        "the LinkedIn jobs tracker page and the exact steps (sweep, check_applied, prescreen, queue_jobs). Easy Apply " +
-        "jobs only; last hour first, then the last 24 hours. The script paces itself to stay under LinkedIn's rate " +
-        "limits; never shorten a wait. Refuses while LinkedIn is in a backoff or today's quota is used.",
+        "preferences, minus everything Aupply already knows. Returns a script (~28KB) to paste into the user's browser on " +
+        "the LinkedIn jobs tracker page. The script stays alive for the whole session and the exact steps (sweep, check_applied, prescreen, " +
+        "queue_jobs) use expressions like __aupply.sweep() to draft jobs. Easy Apply only; last hour first, then the last 24 hours. " +
+        "The script paces itself to stay under LinkedIn's rate limits; never shorten a wait. Refuses while LinkedIn is in a backoff or today's quota is used.",
       inputSchema: {
         windows: z.array(z.enum(["1h", "24h"])).max(2).optional().describe("Default both, last hour first."),
         keywords: z.array(z.string().min(2).max(80)).max(12).optional().describe("Default: the user's desired roles."),
@@ -60,7 +60,7 @@ export function registerLinkedinDraft(server: McpServer): void {
           open: LINKEDIN_TRACKER,
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there) and keep this tab for every step below.`,
-            "If loaded_check is not true on the page, paste inject. Expect {ok:true}.",
+            "If loaded_check is not true on the page, paste inject as the browser tool's source (it's ~28KB and the tool handles it fine). The result will be {ok:true}.",
             "Run __aupply.sweep(), then await __aupply.wait(35000) until an item with phase 'swept' arrives. Keep its ids and tracker.",
             "Call check_applied with platform 'linkedin' and external_ids = those ids.",
             "Run __aupply.prescreen({skip: <the ids in check_applied.known>}), then await __aupply.wait(35000) until phase 'screened'. If paused_until shows, the script is waiting out a rate limit: keep polling or work another platform meanwhile.",
