@@ -1,6 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types.js";
 
-let _supabase: SupabaseClient | null = null;
+export type TypedSupabaseClient = SupabaseClient<Database>;
+
+let _supabase: TypedSupabaseClient | null = null;
 
 /**
  * Returns the Supabase admin client (lazily initialized).
@@ -12,7 +15,7 @@ let _supabase: SupabaseClient | null = null;
  * Throws if SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY are not set — surfacing
  * the error at call time rather than at module import time.
  */
-export function getSupabaseClient(): SupabaseClient {
+export function getSupabaseClient(): TypedSupabaseClient {
   if (_supabase) return _supabase;
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -25,7 +28,7 @@ export function getSupabaseClient(): SupabaseClient {
     );
   }
 
-  _supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  _supabase = createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       // Disable automatic session management — auth is handled externally via OAuth.
       persistSession: false,
@@ -41,7 +44,7 @@ export function getSupabaseClient(): SupabaseClient {
  * Prefer `getSupabaseClient()` in tool handlers to get clear errors when
  * env vars are missing.
  */
-export const supabase = new Proxy({} as SupabaseClient, {
+export const supabase = new Proxy({} as TypedSupabaseClient, {
   get(_target, prop) {
     return (getSupabaseClient() as unknown as Record<string, unknown>)[prop as string];
   },
