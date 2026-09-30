@@ -50,7 +50,7 @@ export function registerNaukriDraft(server: McpServer): void {
           engineLoaded: args.engine_loaded,
           pages: urls.slice(0, 16),
           steps: [
-            "For each URL in pages, in order: navigate to it, run reload (paste inject if it returns NO_CACHE or a stale v/h), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
+            "For each URL in pages, in order: navigate to it, load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run __aupply.scrape(true) on the first page and __aupply.scrape() on the rest.",
             "After the last page run __aupply.draft() and call queue_jobs with platform 'naukri' and jobs = its jobs.",
           ],
           rules: ["One page at a time. Never call Naukri's /jobapi endpoints (they demand a reCAPTCHA)."],

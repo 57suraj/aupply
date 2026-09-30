@@ -1,11 +1,11 @@
 /**
  * The engines' answer resolver, evaluated on the server so resolve_answers answers a
- * question exactly as a browser engine would. The source is shared/core.js +
- * shared/resolver.js, emitted by scripts/build-engines.mjs.
+ * question exactly as a browser engine would: the same built module parts (core and
+ * res_*), instantiated the same way the boot part does it in the page.
  */
 
 import vm from "node:vm";
-import { RESOLVER_SOURCE } from "../engines/generated.js";
+import { MODULES, RESOLVER_MODULES } from "../engines/generated.js";
 
 export interface ResolverAnswer {
   k: string;
@@ -26,11 +26,23 @@ export interface Resolver {
   norm(s: string): string;
 }
 
-let factory: ((cfg: object, source: string) => Resolver) | null = null;
+type Factory = (X: Record<string, unknown>) => Record<string, unknown>;
+let factories: Factory[] | null = null;
+
+function load(): Factory[] {
+  const ctx: Record<string, unknown> = {};
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  for (const n of RESOLVER_MODULES) vm.runInContext(MODULES[n].code, ctx, { filename: n });
+  const m = (ctx.__ap as { m: Record<string, Factory> }).m;
+  return RESOLVER_MODULES.map((n) => m[n]);
+}
 
 export function makeResolver(cfg: object, source: string): Resolver {
-  factory ??= vm.runInNewContext(`${RESOLVER_SOURCE}\n;makeResolver`, {}, { filename: "resolver.js" }) as (cfg: object, source: string) => Resolver;
-  return factory(cfg, source);
+  factories ??= load();
+  const X: Record<string, unknown> = { CFG: cfg, SOURCE: source };
+  for (const f of factories) Object.assign(X, f(X));
+  return X.R as Resolver;
 }
 
 /** How a platform names itself in "how did you hear about us" options. */

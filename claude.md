@@ -20,7 +20,8 @@ API): 13 data tools (including `resolve_answers` and `update_profile`, which onb
 user from their resume), `start_session` / `end_session`, and 11
 automation tools (draft and apply on LinkedIn, Naukri, Wellfound, Indeed, plus
 `queue_jobs` and `report_results`). The automation tools are **built but not yet
-live-tested in a browser**: see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
+proven in a browser** (the first live test stopped at loading the engine; it now loads in
+small parts): see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
 nice-to-have**, so automation work comes before dashboard work. Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
 the other sections are still placeholders ("coming in next phase"), leave them until asked. **Payments are on hold**: the provider is undecided, so do
 not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
@@ -36,9 +37,11 @@ not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
 - `src/domain/schemas.ts`: zod inputs and enums; enums mirror the DB CHECK constraints.
 - `src/mcp/tools`: one file per tool; `src/mcp/toolkit.ts` wraps auth, errors, compact JSON
   (it drops null/empty values, so an empty array comes back missing).
-- `src/engines/src`: the browser scripts (plain JS, `shared/` inlined into each).
-  `scripts/build-engines.mjs` parse-checks, minifies and hashes them into
-  `src/engines/generated.ts`, which is committed. After editing a script run
+- `src/engines/src/modules`: the browser engines as modules, one factory per file
+  (shared `core` and `res_*`, then `li_*`, `nk_*`, `wf_*`, `in_*`).
+  `scripts/build-engines.mjs` turns each into a small checksummed part, checks them
+  (parse, size, undeclared names, a boot in a stub page) and writes
+  `src/engines/generated.ts`, which is committed. After editing a module run
   `npm run build:engines` and commit the generated file.
 - `src/platforms`: job ids, platform knowledge, per-user engine config, result mapping.
   `src/services/automation.ts`: queue, results, backoffs, LinkedIn cap.
@@ -174,9 +177,14 @@ everywhere:
   slug, canonicalised by one function on every write and lookup. Drafts run
   `check_applied` (one lookup on the unique index) before any costly step. LinkedIn
   drafts are Easy Apply only.
-- LinkedIn scripts are pasted as the browser tool's source, never loaded with `eval`
-  (the page's CSP blocks it, even on the tracker page after the first load).
-- One engine per platform, built and parse-checked in this repo, versioned by hash.
+- Engines load as small numbered parts, each pasted as the browser tool's source in
+  its own call (the build caps a part at 8KB: in the first live test a browser tool
+  would not take a 36KB script in one call, and Claude handed the paste to the user).
+  `loaded_check` names the parts a page needs; loading is Claude's job, never the
+  user's. Never `eval` on LinkedIn (CSP, even on the tracker page after the first load);
+  on Naukri, Wellfound and Indeed the engine caches itself and `loaded_check` re-loads it.
+- One engine per platform, built and checked in this repo, versioned by hash; each part
+  verifies its own checksum, so a part mistyped in transit refuses to load.
   Personal values reach an engine only as generated config, never in its source.
 - One answer registry shared by every engine and `resolve_answers`; one screening
   module compiled from preferences, used in the page and on the server.

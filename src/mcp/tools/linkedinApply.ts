@@ -23,7 +23,7 @@ export function registerLinkedinApply(server: McpServer): void {
       title: "Apply on LinkedIn (Easy Apply)",
       description:
         "Apply to LinkedIn Easy Apply jobs: pass job ids or links, or from_queue for the drafted queue. Returns the " +
-        "script (~28KB, paste once on the tracker page) and the runner call. Trims the list to today's remaining quota " +
+        "engine for the tracker page (small parts, loaded once per page; see paste_rule) and the runner call. Trims the list to today's remaining quota " +
         "(about 35 a day) and drops jobs already applied to. About 2 minutes per job. Poll with " +
         "await __aupply.wait(35000) and send results to report_results every 5 jobs and at the end.",
       inputSchema: {
@@ -54,7 +54,7 @@ export function registerLinkedinApply(server: McpServer): void {
           open: LINKEDIN_TRACKER,
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there, for example right after a draft).`,
-            "If loaded_check is not true on the page, paste inject as the browser tool's source (it's ~28KB and the tool handles it fine). The result will be {ok:true}.",
+            "Load the engine (paste_rule). Right after a draft in this page it is already loaded: loaded_check answers ok.",
             `Run __aupply.runQueue(${queue}${args.keep_open ? ", {keepOpen: true}" : ""}).`,
             "Poll await __aupply.wait(35000). Collect the `new` items; call report_results (platform 'linkedin', engine, results) every 5 results, whenever phase leaves 'applying', and at the end with tracker = the status's tracker.",
             "Follow report_results' next (retries, questions for the user, handoffs, stops).",

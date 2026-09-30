@@ -36,14 +36,14 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.4.0";
+export const MCP_SERVER_VERSION = "0.5.0";
 
 /** Sent to the client at initialize; tells Claude how a session should go. */
 const INSTRUCTIONS = `Aupply holds the user's job-search data and the scripts that apply to jobs for them on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed. The scripts run in the user's own browser through your browser tool; Aupply never contacts job sites itself.
 
 A session:
 1. Call start_session first. If it returns setup_needed, read get_resume, propose values for those fields, ask the user about anything the resume doesn't say, and save what they confirm with update_profile before drafting. Raise its pending_actions with the user before applying to anything new, run its inbox_queries if you have a mail tool (record hits with record_outcome), and reconcile what it lists.
-2. Per platform: <platform>_draft, then follow its steps exactly: paste inject as the browser tool's source (it's ~25KB per platform, never eval it), run the expressions given, poll with __aupply.wait. queue_jobs stores the draft; if it returns ask_user, ask the user once, in one message, and pass the answers back as decisions.
+2. Per platform: <platform>_draft, then follow its steps exactly. Load the engine as its paste_rule says: run loaded_check, then run each part it lists as its own JavaScript call, exactly as given (a few KB each; later calls usually need none). Loading is your job, never the user's: do not ask them to paste code or open DevTools. Then run the expressions given and poll with __aupply.wait. queue_jobs stores the draft; if it returns ask_user, ask the user once, in one message, and pass the answers back as decisions.
 3. <platform>_apply with from_queue (or the ids or links the user gave). Follow its steps and send results to report_results every 5 jobs and at the end, then follow report_results' next: retries, questions for the user, real-click handoffs, stops.
 4. Rate limits come first. Never shorten a wait, restart a stopped script, or open a second tab while one runs. When a tool reports blocked, leave that platform until the time it gives.
 5. For a question a script could not answer, or a form you fill by hand, call resolve_answers. Never invent a personal fact: ask the user what stays unknown or protected and save it with save_answer. Never touch a CAPTCHA; Indeed applications are parked for the user to submit.

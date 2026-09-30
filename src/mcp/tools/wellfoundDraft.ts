@@ -48,7 +48,7 @@ export function registerWellfoundDraft(server: McpServer): void {
           engineLoaded: args.engine_loaded,
           pages: urls,
           steps: [
-            "For each URL in pages, in order: navigate to it, run reload (paste inject if it returns NO_CACHE or a stale v/h), then run await __aupply.scrape(true) on the first page and await __aupply.scrape() on the rest.",
+            "For each URL in pages, in order: navigate to it, load the engine (paste_rule; after the first page loaded_check re-loads it from the page's cache and answers ok), then run await __aupply.scrape(true) on the first page and await __aupply.scrape() on the rest.",
             "After the last page run __aupply.draft() and call queue_jobs with platform 'wellfound' and jobs = its jobs.",
           ],
           rules: ["One page at a time; each scrape scrolls 5 times and takes about 5 seconds."],

@@ -1,16 +1,20 @@
 /**
- * The response every platform tool returns: what to open, the script to paste, the
- * exact expressions to run, and what to report. Claude follows it step by step.
+ * The response every platform tool returns: what to open, the engine as small numbered
+ * parts with the check that says which ones the page needs, the exact expressions to
+ * run, and what to report. Claude follows it step by step.
  */
 
-import { engineScript, engineVersion, type EnginePlatform } from "../engines/index.js";
+import { engineParts, type EnginePlatform } from "../engines/index.js";
 
-/** Where each engine caches itself for one-line re-loads (LinkedIn never: CSP blocks eval). */
-const CACHE: Partial<Record<EnginePlatform, string>> = {
-  naukri: "localStorage.getItem('__aupply_naukri')",
-  wellfound: "sessionStorage.getItem('__aupply_wellfound')",
-  indeed: "localStorage.getItem('__aupply_indeed')",
-};
+const PASTE_RULE =
+  "Load the engine first, with your browser tool's JavaScript execution on this page: run loaded_check exactly as " +
+  "given. 'ok' means it is ready: go to the steps. Otherwise it answers 'paste parts 1,2,...': run each of those " +
+  "entries of `parts`, in that order, one JavaScript call per part, exactly as given (each is a few KB). Each answers " +
+  "'ok <name>' and the last answers {ok:true,...}. A 'corrupt ...' answer means the part changed in transit: run it " +
+  "again exactly. If loaded_check lists a part this response does not include, call this tool again without " +
+  "engine_loaded. On later calls in the same page pass engine_loaded = engine, so the parts are not sent again. " +
+  "Loading is automatic and it is your job: never ask the user to paste code or open DevTools, and there is no " +
+  "manual or API alternative. If your browser tool cannot run JavaScript on this page, tell the user that and stop.";
 
 export function envelope(
   platform: EnginePlatform,
@@ -18,22 +22,18 @@ export function envelope(
   body: { steps: string[]; rules?: string[]; engineLoaded?: string; [k: string]: unknown }
 ) {
   const { steps, rules, engineLoaded, ...rest } = body;
-  const v = engineVersion(platform);
-  const id = `${v}.${cfg.h}`;
-  const cache = CACHE[platform];
+  const e = engineParts(platform, cfg);
+  const id = `${platform}@${e.version}.${cfg.h}`;
+  // Same modules already in the page (only the config changed): send config + boot.
+  const skip = engineLoaded === id ? e.parts.length : engineLoaded?.startsWith(`${platform}@${e.version}.`) ? e.moduleCount : 0;
+  const parts = Object.fromEntries(e.parts.map((code, i) => [String(i + 1), code]).slice(skip));
   return {
-    engine: `${platform}@${id}`,
+    engine: id,
     ...rest,
-    loaded_check: `window.__aupply?.v === '${v}' && window.__aupply?.h === '${cfg.h}'`,
-    ...(cache ? { reload: `(s => s ? eval(s) : 'NO_CACHE')(${cache})` } : {}),
-    // Pass engine_loaded: "<the id above>" on later calls in the same page to skip this.
-    ...(engineLoaded === id ? {} : { inject: engineScript(platform, cfg) }),
+    loaded_check: e.loadedCheck,
+    ...(Object.keys(parts).length ? { parts } : {}),
     steps,
     ...(rules?.length ? { rules } : {}),
-    paste_rule:
-      "Paste `inject` as the browser tool's JavaScript source exactly as given; never eval it. It returns {ok:true}. " +
-      (cache
-        ? "On later pages run `reload` instead; if it returns NO_CACHE, or a v/h other than this engine's, paste `inject` again."
-        : "It survives the whole queue because the runner moves between jobs without reloading the page."),
+    paste_rule: PASTE_RULE,
   };
 }

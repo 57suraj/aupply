@@ -83,7 +83,8 @@ function educationFacts(educations: Education[]) {
 }
 
 /** savedLimit: saved answers matched by exact question. Engines get the 60 most
-    recently used (they ride in the pasted script); the server can afford all of them. */
+    recently used short ones (they ride in the pasted config; a long answer is left out
+    rather than cut, and resolve_answers still finds it); the server can afford all. */
 export function answerPack(d: UserData, overrides?: Record<string, string>, savedLimit = 60) {
   const { profile: p, prefs } = d;
   const links = (p.links ?? {}) as Record<string, string>;
@@ -95,7 +96,7 @@ export function answerPack(d: UserData, overrides?: Record<string, string>, save
   for (const a of d.answers) {
     if (a.key) keyed[a.key] = a.answer;
     // Any saved answer (keyed or not) answers its own exact question.
-    if (saved.length < savedLimit) saved.push([a.question.slice(0, 300), a.answer.slice(0, savedLimit > 60 ? 20000 : 400)]);
+    if (saved.length < savedLimit && (savedLimit > 60 || a.answer.length <= 600)) saved.push([a.question.slice(0, 300), a.answer]);
   }
   const rules = rulesOf(prefs);
   return {

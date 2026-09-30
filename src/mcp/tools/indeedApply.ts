@@ -38,8 +38,8 @@ export function registerIndeedApply(server: McpServer): void {
           jobs: list.map((j) => ({ id: j.id, url: j.url })),
           ...(dropped.length ? { dropped } : {}),
           steps: [
-            "For each job, in a NEW tab: open its url, run reload (paste inject if NO_CACHE or a stale v/h), then run await __aupply.drive('<jk>'). Expect NAVIGATED: the tab moves to smartapply.indeed.com.",
-            "In that same tab (now smartapply) run reload again (paste inject the first time on this origin), then await __aupply.drive('<jk>') until r is READY_FOR_CAPTCHA. r = CONTINUE: call drive again.",
+            "For each job, in a NEW tab: open its url, load the engine (paste_rule), then run await __aupply.drive('<jk>'). Expect NAVIGATED: the tab moves to smartapply.indeed.com.",
+            "In that same tab (now smartapply) load the engine again (paste_rule: smartapply is its own origin, so the first time there loaded_check lists parts), then await __aupply.drive('<jk>') until r is READY_FOR_CAPTCHA. r = CONTINUE: call drive again.",
             "Call report_results (platform 'indeed', engine, results) with each final result. Leave every parked tab open.",
             "At the end, tell the user in one message how many tabs are waiting and which company and role each holds.",
           ],

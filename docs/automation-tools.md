@@ -16,13 +16,15 @@ best jobs. *Applying* works through the queue, or through ids and links given di
 
 ## Build status (30 Sep 2026)
 
-Built and passing the backend e2e suite (101 checks); the browser scripts are parse-checked
-at build time and not yet run on the live sites.
+Built and passing the backend e2e suite (108 checks). The browser engines are checked at
+build time (every part parses and stays under 8KB, no undeclared names, every platform
+boots in a stub page) and are not yet proven on the live sites: the first live test
+(30 Sep) stopped at loading, which is why engines now load in parts (below).
 
 | Piece | Where |
 |---|---|
-| Browser engines (LinkedIn, Naukri, Wellfound, Indeed) | `src/engines/src/*.js`, with the shared answer resolver and helpers in `src/engines/src/shared/` |
-| Engine build (inline shared files, parse-check, minify, hash) | `scripts/build-engines.mjs` -> `src/engines/generated.ts` (committed; `npm run build:engines`, also part of `npm run build`) |
+| Browser engines (LinkedIn, Naukri, Wellfound, Indeed) | `src/engines/src/modules/*.js`: one factory per file; shared `core` and `res_*` (the answer resolver), then `li_*`, `nk_*`, `wf_*`, `in_*` |
+| Engine build (modules to checksummed parts, checks, hash) | `scripts/build-engines.mjs` -> `src/engines/generated.ts` (committed; `npm run build:engines`, also part of `npm run build`); config parts and `loaded_check` per request in `src/engines/index.ts` |
 | Per-user engine config | `src/platforms/config.ts` |
 | Job ids, platform knowledge, result mapping, envelope, apply lists | `src/platforms/ids.ts`, `knowledge.ts`, `results.ts`, `envelope.ts`, `jobs.ts` |
 | Queue, results, backoffs, LinkedIn cap | `src/services/automation.ts` |
@@ -32,9 +34,9 @@ at build time and not yet run on the live sites.
 Where the build differs from the design below:
 - **Sessions and answers are built too:** `start_session`, `end_session` and
   `resolve_answers` replace `log_run` and `find_answers` (25 tools). `resolve_answers`
-  runs the engines' own resolver on the server (emitted by the engine build as
-  `RESOLVER_SOURCE`), so a form filled by hand gets the same answers as one an engine
-  fills. `queue_jobs` and `report_results` attach results to the open session's run
+  runs the engines' own resolver on the server (the same built `core` and `res_*`
+  parts, instantiated the way the page's boot part does it), so a form filled by hand
+  gets the same answers as one an engine fills. `queue_jobs` and `report_results` attach results to the open session's run
   when Claude does not pass `run_id`, so `end_session`'s counts are complete.
 - **Onboarding from the resume:** `update_profile` (26th tool) saves profile,
   preferences, work history and education in one call (lists replace the stored ones).
@@ -43,6 +45,12 @@ Where the build differs from the design below:
   tells Claude to propose them from `get_resume` and save what the user confirms. The
   dashboard forms are not needed for a first run. `linkedin_draft` refuses when there
   are no roles to search.
+- **Engines load as small parts.** In the first live test (30 Sep) the user's Claude
+  would not send the 36KB LinkedIn script in one browser-tool call ("too long for a
+  single execution") and fell back to asking the user to paste it into DevTools. Each
+  engine is now a list of modules pasted one per call (the largest about 6KB), then the
+  user's config (made per request) and a boot part; `loaded_check` names the parts a
+  page still needs. Section 5 has the protocol.
 - **One new table after all:** `platform_state` holds rate-limit backoffs
   (`blocked_until` per scope: a platform, or `linkedin_guest` for the guest API) and small
   machine state (Naukri chip, LinkedIn tracker count, Wellfound failure streak). Backoffs
@@ -185,9 +193,9 @@ Engines carry the user's answer pack; what they cannot answer comes back as
 the retry and stop rules.** Every tool response ends with `next`, so Claude follows
 the server instead of carrying the runbook.
 
-**D9. Engines are built in this repo** (TypeScript bundled into one self-contained
-script per platform), parse-checked, versioned by content hash, and self-test when
-injected.
+**D9. Engines are built in this repo** (plain JavaScript modules, one factory each,
+built into small parts that check their own checksum), versioned by content hash, and
+self-test when loaded.
 
 **D10. Technology questions are settled at draft time.** While drafting, jobs whose
 JD names a main technology the user doesn't list go to the user in one batch to keep
@@ -329,8 +337,8 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
   Then `queue_jobs` with `source: "sweep"`: survivors become the queue, prescreen rejects
   are stored as skipped so no later draft fetches their JD again.
-- On LinkedIn one script carries both the draft and the apply engine, so a draft
-  followed by an apply in the same page lifetime needs one paste.
+- On LinkedIn one engine carries both the draft and the apply code, so a draft
+  followed by an apply in the same page lifetime loads it once.
 
 **`linkedin_apply`**
 - Input: `jobs?` (ids or URLs), `from_queue?`, `limit?`, `answers?` (question → answer
@@ -377,8 +385,8 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
 **`naukri_apply`**
 - Input: `jobs?` (ids or URLs), `from_queue?`, `limit?`.
-- Per job: open `naukri.com/job-listings-x-y-<id>` (resolves any id); inject once, then
-  re-load from `localStorage` on later pages; run `__aupply.go()` detached (polls 13s for
+- Per job: open `naukri.com/job-listings-x-y-<id>` (resolves any id); load the engine once, then
+  `loaded_check` re-loads it from `localStorage` on later pages; run `__aupply.go()` detached (polls 13s for
   the Apply control and branches on its label, hides Simplify, unticks Follow, runs the
   chatbot with the repeated-question guard); a few seconds later read
   `__aupply.result()`, which parses the redirect code in the page and returns only the
@@ -434,8 +442,9 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
 **`indeed_apply`**
 - Input: `jobs` (`jk`s or URLs), `from_queue?`. Always parks.
-- Per job, in its own tab: open `in.indeed.com/viewjob?jk=<jk>`, inject, `__aupply.drive()`
-  → `NAVIGATED`; inject again on `smartapply.indeed.com`, `drive()` → `READY_FOR_CAPTCHA`.
+- Per job, in its own tab: open `in.indeed.com/viewjob?jk=<jk>`, load the engine, `__aupply.drive()`
+  → `NAVIGATED`; load it again on `smartapply.indeed.com` (its own origin), `drive()` →
+  `READY_FOR_CAPTCHA`.
   Status `parked`. Hand the user one list at the end, never one tab at a time, and never
   close a parked tab. `NEEDS_DROPDOWN` is a real-click handoff.
 - Confirmation arrives by mail; `start_session` lists parked Indeed jobs with the query.
@@ -446,25 +455,38 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
 ```json
 {
-  "engine": "linkedin@3f9a2c1",
+  "engine": "linkedin@5d68617fe8.034ccd65",
   "open": "https://www.linkedin.com/jobs-tracker/?stage=applied",
-  "skip_inject_if": "window.__aupply?.v === '3f9a2c1'",
-  "inject": "(()=>{ ... })()",
-  "run": "__aupply.runQueue(['4471873921','4470073581'])",
-  "poll": { "expr": "await __aupply.wait(35000)", "until": "done" },
-  "report": "report_results",
+  "loaded_check": "(()=>{ ... return \"paste parts 1,2,...\" })()",
+  "parts": { "1": "(()=>{ ... })()", "2": "...", "11": "(()=>{ ... })()" },
+  "steps": ["Open ...", "Load the engine (paste_rule). ...", "Run __aupply.runQueue([...])", "..."],
   "rules": ["Do not open another tab while the queue runs; background timers throttle."],
-  "next": "..."
+  "paste_rule": "Load the engine first ... never ask the user to paste code ..."
 }
 ```
 
 Rules every engine follows, from the browser tool's limits:
 
-- **Paste `inject` as the tool's source, never `eval` it.** The browser tool runs a pasted
-  script outside the page's CSP, so it always works. LinkedIn refuses `eval` and
-  `new Function` on job pages, and on the tracker page after the first load (30 Sep), so
-  LinkedIn never uses a cache. Naukri, Wellfound and Indeed allow `eval`, so there the
-  engine caches its own source and later pages need a one-line re-load.
+- **Load in parts, each pasted as the tool's source in its own call.** A browser tool
+  would not take a 36KB script in one call (30 Sep), so an engine is numbered parts: its
+  modules (the shared `core` and `res_*`, then the platform's), the user's config (5,000
+  characters of JSON per part, made per request), and a boot part that instantiates the
+  modules with that config. The build fails any part over 8KB; the largest is about 6KB.
+  `loaded_check` answers `ok` or `paste parts 1,2,...`: modules the page already holds
+  (by hash) are skipped, the config and boot parts are listed whenever the engine is not
+  loaded with this exact config. `engine_loaded` on a later call sends no parts for the
+  same engine, and only the config and boot parts when just the config changed.
+- **A part changed in transit refuses to load.** Each module part checks its function's
+  checksum before registering, and the boot part checks the config's, so a mistyped
+  character answers `corrupt part ...` (run it again) instead of misbehaving on a form.
+- **Never `eval` on LinkedIn.** The browser tool runs a pasted part outside the page's
+  CSP, so pasting always works. LinkedIn refuses `eval` and `new Function` on job pages,
+  and on the tracker page after the first load (30 Sep), so LinkedIn never uses a cache.
+  Naukri, Wellfound and Indeed allow `eval`: there the boot part caches the whole engine
+  in page storage and `loaded_check` re-loads it in the same call.
+- **Loading is Claude's job.** The paste rule and the server instructions say so: never
+  ask the user to paste code or open DevTools; if the browser tool cannot run
+  JavaScript, say so and stop.
 - **No call blocks longer than about 30s.** The browser tool times out at 45s, so longer
   work runs detached and is polled.
 - **`status()` and `wait()` return compact JSON with job ids only, and only what changed
@@ -475,8 +497,9 @@ Rules every engine follows, from the browser tool's limits:
   results, reports are batched, the payload is minified, static rules live in tool
   descriptions rather than every response, and nothing sends Claude a page or a job
   description to read.
-- **Self-test on load.** The engine runs its resolver on built-in fixtures and returns
-  `{ ok, v }`. A failed self-test means the paste was corrupted: inject again.
+- **Self-test on load.** The boot runs the resolver's rules on built-in fixtures and
+  returns `{ ok, v, h, fails }`. It tests the rules alone: a saved answer to a fixture
+  question ("What is your notice period?") once made a healthy engine report a failure.
 - Scripts carry the user's answer pack but **never an Aupply token**.
 
 ## 6. Result mapping
@@ -504,7 +527,9 @@ Rules every engine follows, from the browser tool's limits:
 
 ## 7. Answer registry
 
-`src/engines/src/shared/resolver.js` is one ordered list of canonical question keys, inlined into every engine. Each entry
+The resolver modules (`res_base`, `res_rules_a`, `res_rules_b`, `res_api` in
+`src/engines/src/modules`) are one ordered list of canonical question keys, loaded by
+every engine and by `resolve_answers`. Each entry
 holds its matching patterns, where the value comes from (a profile field, the user's
 saved answer with that key, or a universal rule), the value type and unit conversions,
 how to pick an option, and whether it may ever be inferred.
@@ -646,12 +671,13 @@ Promote any of these to columns once they are queried, per the metadata conventi
 ## 10. Code layout
 
 ```
-src/engines/src/
-  shared/core.js               helpers, result store, status/wait (inlined into every engine)
-  shared/resolver.js           the answer registry and option pickers (inlined into every engine)
-  linkedin.js naukri.js wellfound.js indeed.js
-src/engines/generated.ts       built by scripts/build-engines.mjs: parse-checked, minified, hashed
-src/engines/index.ts           engineScript(): fills in the user's config
+src/engines/src/modules/       one factory per file, loaded in this order:
+  core.js                      helpers, result store, status/wait
+  res_base.js res_rules_a.js   the answer registry: facts and parsers, ordered rules,
+  res_rules_b.js res_api.js    A() and the option pickers
+  li_dom li_fill li_draft li_main, nk_chat nk_main, wf_apply wf_main, in_fill in_main
+src/engines/generated.ts       built by scripts/build-engines.mjs: checksummed parts, boot parts, versions
+src/engines/index.ts           engineParts(): config parts and loaded_check per request
 src/platforms/
   ids.ts                       canonical job ids, job URLs
   knowledge.ts                 spam and external lists, aggregators, slugs, stack vocabulary
@@ -687,10 +713,11 @@ src/mcp/tools/                 one file per tool, as today
   dropping external-ATS postings at draft time avoids the known case.
 - **Selectors move.** Engines are versioned on the server, so a fix reaches every user on
   their next call, and results carry the engine version so breakage shows in the data.
-- **Claude re-types the engine when injecting it** (about 25 to 35KB for the LinkedIn
-  pack before minifying). The payload is minified at build time, which roughly halves
-  it, and the self-test catches a corrupted paste. It happens
-  once per LinkedIn session, because the draft and the queue share one page lifetime.
+- **Claude re-types the engine when loading it**: about 41KB in 10 to 11 parts for
+  LinkedIn, once per session (the draft and the queue share one page lifetime). Later
+  calls send nothing, or only the config and boot parts when the config changed. Parts
+  are minified at build time, and each checks itself, so a mistyped part refuses to load
+  instead of misbehaving.
 
 ## 13. Build order and sources
 

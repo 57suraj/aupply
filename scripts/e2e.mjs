@@ -16,6 +16,7 @@
 
 import "dotenv/config";
 import crypto from "node:crypto";
+import vm from "node:vm";
 import { createClient } from "@supabase/supabase-js";
 import JSZip from "jszip";
 
@@ -51,6 +52,19 @@ const section = (title) => console.log(`\n# ${title}`);
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
+/** A bare page for loading engine parts in node: storage, a document with nothing on it. */
+function stubPage() {
+  const storage = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; };
+  const ctx = {
+    setTimeout, clearTimeout, URL, localStorage: storage(), sessionStorage: storage(),
+    document: { querySelectorAll: () => [], querySelector: () => null, getElementById: () => null, body: { innerText: "" }, documentElement: {}, title: "" },
+    location: { href: "https://www.linkedin.com/jobs-tracker/", pathname: "/jobs-tracker/", host: "www.linkedin.com", search: "" },
+    history: { pushState() {} }, MutationObserver: class { observe() {} },
+  };
+  ctx.window = ctx;
+  return vm.createContext(ctx);
+}
+
 async function http(method, path, { token, json, form, headers = {} } = {}) {
   const init = { method, headers: { ...headers }, redirect: "manual" };
   if (token) init.headers.Authorization = `Bearer ${token}`;
@@ -482,10 +496,27 @@ async function main() {
 
   section("Automation tools");
   r = await tool(accessA, "linkedin_draft", {});
-  expect("linkedin_draft returns the engine and steps", !r.isError && typeof r.data.inject === "string" && r.data.inject.includes("__aupply") && !r.data.inject.includes("__AUPPLY_CFG__") && r.data.steps?.length === 6, r.data?.engine ?? r.data);
-  const liEngine = r.data?.engine?.split("@")[1];
+  const liParts = r.data?.parts || {};
+  const liNums = Object.keys(liParts);
+  expect("linkedin_draft returns the engine as small parts", !r.isError && liNums.length >= 8 && liNums.every((n) => liParts[n].length <= 8000) && typeof r.data.loaded_check === "string" && r.data.steps?.length === 6, r.data?.engine ?? r.data);
+  {
+    // Load it the way Claude does: loaded_check, then each part it lists, one call each.
+    const page = stubPage();
+    const check = vm.runInContext(r.data.loaded_check ?? "''", page);
+    const listed = String(check).replace("paste parts ", "").split(",");
+    let last = "{}";
+    for (const n of listed) last = vm.runInContext(liParts[n] ?? "''", page);
+    const booted = JSON.parse(last);
+    expect("the parts load in a page and the engine boots", String(check).startsWith("paste parts 1,") && listed.length === liNums.length && booted.ok && booted.fails?.length === 0 && vm.runInContext(r.data.loaded_check, page) === "ok", { check, booted });
+    const tampered = vm.runInContext(liParts["1"].replace("Math.floor", "Math.ceil"), stubPage());
+    expect("a part changed in transit refuses to load", String(tampered).startsWith("corrupt part core"), tampered);
+  }
+  const liEngine = r.data?.engine;
   r = await tool(accessA, "linkedin_draft", { engine_loaded: liEngine });
-  expect("engine_loaded skips re-sending the script", !r.isError && r.data.inject === undefined, Object.keys(r.data || {}));
+  expect("engine_loaded skips re-sending the parts", !r.isError && r.data.parts === undefined && r.data.loaded_check, Object.keys(r.data || {}));
+  r = await tool(accessA, "linkedin_draft", { engine_loaded: liEngine?.replace(/\.[^.]+$/, ".00000000") });
+  const cfgOnly = Object.keys(r.data?.parts || {});
+  expect("a changed config re-sends only the config and boot parts", !r.isError && cfgOnly.length >= 2 && !cfgOnly.includes("1") && cfgOnly.includes(liNums[liNums.length - 1]), cfgOnly);
   r = await tool(accessA, "queue_jobs", {
     platform: "linkedin",
     jobs: [{ id: "4471000001", t: "Backend Engineer", co: "Qco", w: "1h" }, { id: "https://www.linkedin.com/jobs/view/4471000002/", t: "SDE", co: "Rco", sm: ["Java"] }],
