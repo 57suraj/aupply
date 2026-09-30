@@ -17,7 +17,7 @@ best jobs. *Applying* works through the queue, or through ids and links given di
 ## Build status (30 Sep 2026)
 
 Built and passing the backend e2e suite (128 checks). The browser engines are checked at
-build time (every part parses and stays under 8KB, no undeclared names, every engine
+build time (every part parses and stays under 9KB, no undeclared names, every engine
 boots in a stub page) and are not yet proven on the live sites: the first live test
 (30 Sep) stopped at loading. Engines now reach the page in small parts that the server
 hands out on request, never whole (below and section 5).
@@ -57,8 +57,8 @@ Where the build differs from the design below:
   reports what its page holds and `load_engine` sends only the next few parts that page
   lacks, as verbatim text blocks (nothing escaped). Section 5 has the protocol.
 - **LinkedIn has two engines** so neither receives the other's code: the draft (`core`,
-  `pay`, `li_base`, `li_draft`, `li_dmain`, about 11KB) and the apply (`core`, `pay`,
-  `res_*`, `li_base`, `li_dom`, `li_fill`, `li_main`, about 36KB). A draft followed by an
+  `pay`, `li_base`, `li_sweep`, `li_screen`, `li_dmain`, about 18KB) and the apply (`core`,
+  `pay`, `res_*`, `li_base`, `li_dom`, `li_fill`, `li_job`, `li_main`, about 53KB). A draft followed by an
   apply in the same page only loads what the apply still lacks. The draft config carries
   only the screening rules, the apply config only the answers.
 - **One new table after all:** `platform_state` holds rate-limit backoffs
@@ -67,8 +67,8 @@ Where the build differs from the design below:
   are a hard constraint, so they get a real table, not `runs.stats`.
 - **Uncertain years never drop a job**, and no snippet comes back: Claude reads nothing.
 - **Engines carry a config hash** (`h`) next to the engine version (`v`), so a cached copy
-  with stale answers is reloaded. Sizes after minifying: LinkedIn apply 36KB (the same as
-  the applix Drive file), LinkedIn draft 11KB, the others 30 to 32KB.
+  with stale answers is reloaded. Sizes as served (readable, see section 5): LinkedIn apply
+  53KB, LinkedIn draft 18KB, the others 41 to 45KB.
 - **Naukri's blind "first option" fallback is gone**: an unmatched option ends the chat
   unanswered (Naukri then returns 406 and creates no application). Same for EEO questions
   with no "decline" option on every platform.
@@ -526,7 +526,7 @@ Rules every engine follows, from the browser tool's limits:
   a 36KB script in one call (30 Sep), and code inside a JSON string arrives escaped (every
   quote and backslash doubled, three times over for a config inside a script), which
   Claude has to undo while copying: one slip is a SyntaxError that no checksum can catch.
-  So parts are text blocks of their own. The build fails any part over 8KB. The user's
+  So parts are text blocks of their own. The build fails any part over 9KB. The user's
   config is not a JSON string inside JavaScript either: config parts build a plain object
   (`window.__apc`) statement by statement, and a large config spans several answers.
 - **A part changed in transit refuses to load.** Every part, modules and config alike,
@@ -549,7 +549,19 @@ Rules every engine follows, from the browser tool's limits:
 - **Loading is Claude's job.** The load rule and the server instructions say so: never
   ask the user to paste code or open DevTools; if the browser tool cannot run
   JavaScript, say so and stop.
-- **No call blocks longer than about 30s.** The browser tool times out at 45s, so longer
+- **Readable code, on purpose.** Claude copies every part with its own hands, and dense
+  minified code is what it mis-copies (30 Sep: a ternary that lost its else branch, an
+  ending that jumped to an earlier similar spot, both a syntax error that no checksum
+  can report). Parts are real names and one statement per line, about 19% more tokens
+  than minified by a rough estimate, for far fewer copy errors. A part's checksum ignores
+  line edges and blank lines, so whitespace that changes in transit does not matter.
+- **`wait` is event-driven, at most 35s.** It answers at once when nothing runs, wakes on a
+  result or when the run stops, and otherwise on one timer: a loop of one-second sleeps
+  adds a throttled tab's delay to every tick (30 Sep: 10s waits answered, 20s and longer
+  timed out at the tool's 45s). A status carries `hid:1` when the tab is hidden, and the
+  LinkedIn runner waits for the tab to be shown before each job: Chrome throttles the
+  timers of a hidden tab and LinkedIn's modal stalls in it.
+- **No call blocks longer than about 35s.** The browser tool times out at 45s, so longer
   work runs detached and is polled.
 - **`status()` and `wait()` return compact JSON with job ids only, and only what changed
   since the last call**: no URLs and no query strings, because the Chrome extension
@@ -737,8 +749,8 @@ src/engines/src/modules/       one factory per file, loaded in this order:
   core.js pay.js               helpers, result store, status/wait; money parsers
   res_base.js res_rules_a.js   the answer registry: facts and parsers, ordered rules,
   res_rules_b.js res_api.js    A() and the option pickers
-  linkedin draft engine: li_base li_draft li_dmain (with core, pay)
-  linkedin apply engine: li_base li_dom li_fill li_main (with core, pay, res_*)
+  linkedin draft engine: li_base li_sweep li_screen li_dmain (with core, pay)
+  linkedin apply engine: li_base li_dom li_fill li_job li_main (with core, pay, res_*)
   nk_chat nk_main, wf_apply wf_main, in_fill in_main (each with core, pay, res_*)
 src/engines/generated.ts       built by scripts/build-engines.mjs: checksummed parts, boot parts, versions
 src/engines/index.ts           config parts, the page-state check and planLoad (what to send next)
@@ -778,12 +790,14 @@ src/mcp/tools/                 one file per tool, as today (load_engine is how c
   dropping external-ATS postings at draft time avoids the known case.
 - **Selectors move.** Engines are versioned on the server, so a fix reaches every user on
   their next call, and results carry the engine version so breakage shows in the data.
-- **Claude re-types the engine when loading it**: the LinkedIn draft is about 13KB in
-  about 6 parts over 2 answers, the apply about 41KB in about 11 parts over 4 answers
-  (config included), and a page that already holds modules is sent only the rest. Parts
-  are minified at build time, and each checks itself, so a mistyped part refuses to load
-  instead of misbehaving; a part with a syntax error never runs, so the load rule tells
-  Claude to copy it again and to stop after 3 failures.
+- **Claude re-types the engine when loading it, and that is the fixed cost of a session**:
+  for a typical user the LinkedIn draft is about 20KB in 7 parts over 2 answers and the
+  apply about 60KB in 12 parts over 6 answers (config included; a page that already holds
+  modules is sent only the rest), roughly 27K tokens of code to read and to type for both.
+  A page that keeps the engine (the tab stays open between chats, same config) is sent
+  nothing. Parts are readable and each checks itself, so a mistyped part refuses to load;
+  a part with a syntax error never runs, so the load rule tells Claude to copy it again
+  and to stop after 3 failures.
 - **The engine passes through the user's Claude and browser when it is used.** Delivery
   in pieces, metering and the instruction not to show the code limit exposure; they
   cannot hide code that has to run in the user's browser. The engine source is also in

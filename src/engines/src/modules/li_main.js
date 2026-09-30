@@ -1,15 +1,37 @@
-/* LinkedIn apply 3/3: the queue runner (SPA navigation between jobs, 15 to 30s apart, a 5
+/* LinkedIn apply 4/4: the queue runner (SPA navigation between jobs, 15 to 30s apart, a 5
    minute pause after "Rate Limited" and a stop on the second) and window.__aupply. */
 function li_main(X) {
   'use strict';
   const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont } = X;
   let pageWait = P.page;
 
+  /* A hidden tab (another tab in front, the window covered or minimized) gets its timers
+     throttled to a crawl and LinkedIn's modal stalls in it: live run 30 Sep, a job sat
+     "in progress" for minutes. The runner waits for the tab to be shown before each job;
+     status() carries hid:1 meanwhile, so Claude can tell the user. */
+  const shown = () => new Promise((resolve) => {
+    if (!document.hidden) { resolve(); return; }
+    S.info.paused = 'hidden';
+    const on = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', on);
+      delete S.info.paused;
+      resolve();
+    };
+    document.addEventListener('visibilitychange', on);
+  });
+
   const nav = async (path) => {
     history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     await sleep(pageWait);
   };
+  // A job that makes no progress for P.jobMax ends the run as "stalled" (a hidden or frozen
+  // tab): it is recorded, and the next job never starts while the stuck one may still run.
+  const withLimit = (p, ms) => new Promise((resolve, reject) => {
+    const t = setTimeout(() => resolve({ result: 'ERR', e: 'job_timeout' }), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
   const discard = async () => {
     const x = deepAll('button').find((b) => /^dismiss$/i.test(b.getAttribute('aria-label') || ''));
     if (x) { x.click(); await sleep(1200); }
@@ -44,6 +66,8 @@ function li_main(X) {
         S.info.tracker.before = await readTracker();
         for (const item of q) {
           if (S.stop) break;
+          await shown();
+          if (S.stop) break;
           const id = String(item[0]), co = String(item[1] || '');
           await nav('/jobs/view/' + id + '/');
           if (rateLimited()) {
@@ -59,8 +83,10 @@ function li_main(X) {
             record(id, co, { result: 'TITLE_MISMATCH' });
           } else {
             let res;
-            try { res = await job(); } catch (e) { res = { result: 'ERR', e: cut(e && e.message, 100) }; }
+            S.info.cur = id;
+            try { res = await withLimit(job(), P.jobMax); } catch (e) { res = { result: 'ERR', e: cut(e && e.message, 100) }; }
             record(id, co, res);
+            if (res.e === 'job_timeout') { S.end = 'stalled'; break; }
             if (res.result === 'DAILY_LIMIT') { S.end = 'limit'; break; }
             if (!/^(SENT|UNCONFIRMED|CLOSED|NO_EASY_APPLY|ALREADY_APPLIED)$/.test(res.result) && !opts.keepOpen) await discard();
           }

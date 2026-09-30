@@ -40,7 +40,8 @@ function res_rules_b(X) {
     if (/do you (use|write|code|build|work|ship|have)\b/.test(s)) return val('experience.tech', techYes(s) ? 'Yes' : null, { yn: 'yes' });
     if (/familiar|do you have (experience|knowledge)|proficient|hands.?on|knowledge of/.test(s)) return val('experience.tech', techYes(s) ? 'Yes' : null, { yn: 'yes' });
     if (/willing|comfortable|able to (work|commute|join)|can you (join|work|commute)/.test(s)) return val('willing', 'Yes', { yn: 'yes' });
-    if (/phone|mobile|contact number/.test(s)) return val('phone', ME.phone);
+    // A phone field has its own country selector: the national number, unless the question asks for the code.
+    if (/phone|mobile|contact number/.test(s)) return val('phone', /country code|with code|isd|\+\d/.test(s) ? ME.phone : (ME.phoneNational || ME.phone));
     if (/e-?mail/.test(s)) return val('email', ME.email);
     if (/type your full name|signature|full name|your name/.test(s)) return val('name.full', ME.fullName);
     if (/preferred name/.test(s)) return val('name.preferred', ME.preferredName || ME.firstName);

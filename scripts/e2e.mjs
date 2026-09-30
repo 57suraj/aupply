@@ -542,7 +542,7 @@ async function main() {
   {
     const res = await loadEngineIn(draftPage, draftRes, accessA);
     expect("load_engine sends the draft engine in pieces and it boots", res.ready && res.booted?.ok && res.booted.fails?.length === 0 && res.answers >= 2 && res.maxBytes <= 32000, res);
-    expect("the draft engine never receives the apply code", !res.sent.some((n) => /^(res_|li_dom|li_fill|li_main)/.test(n)) && res.sent.includes("li_draft") && res.sent.at(-1) === "boot", res.sent);
+    expect("the draft engine never receives the apply code", !res.sent.some((n) => /^(res_|li_dom|li_fill|li_job|li_main)/.test(n)) && res.sent.includes("li_sweep") && res.sent.includes("li_screen") && res.sent.at(-1) === "boot", res.sent);
     expect("loaded_check answers ok once the engine is loaded", vm.runInContext(blockWith(draftRes, "loaded_check"), draftPage) === "ok");
     const state = vm.runInContext("JSON.stringify([window.__ap.v,window.__ap.c,window.__ap.e])", draftPage);
     const ready = await tool(accessA, "load_engine", { engine: draftRes.data.engine, page: state });
@@ -551,7 +551,7 @@ async function main() {
     const flip = (code) => { const at = code.indexOf("const f=") + 40; return code.slice(0, at) + (code[at] === "a" ? "b" : "a") + code.slice(at + 1); };
     const altered = (() => { try { return String(vm.runInContext(flip(first.blocks[0]), stubPage())); } catch (e) { return `THROW ${e.name}`; } })();
     expect("a part changed in transit refuses to run", /^corrupt part |^THROW SyntaxError/.test(altered), altered);
-    expect("an unreadable page answer is treated as an empty page", !first.isError && first.data.blocks?.[0] === "core" && first.blocks.every((b) => b.length <= 8000), first.data);
+    expect("an unreadable page answer is treated as an empty page", !first.isError && first.data.blocks?.[0] === "core" && first.blocks.every((b) => b.length <= 9000), first.data);
   }
   {
     // The same config again: same id, still no code. A changed config: a new id, and only config and boot are sent.
@@ -621,14 +621,14 @@ async function main() {
   {
     // Drafted in this page already: only the apply parts are missing.
     const res = await loadEngineIn(draftPage, applyRes, accessA);
-    expect("an apply after a draft in the same page gets only what is missing, never the draft code", res.ready && res.booted?.ok && !res.sent.some((n) => /^(core|pay|li_base|li_draft|li_dmain)$/.test(n)) && res.sent.includes("li_fill") && res.sent.at(-1) === "boot" && res.answers >= 3, res.sent);
+    expect("an apply after a draft in the same page gets only what is missing, never the draft code", res.ready && res.booted?.ok && !res.sent.some((n) => /^(core|pay|li_base|li_sweep|li_screen|li_dmain)$/.test(n)) && res.sent.includes("li_fill") && res.sent.includes("li_job") && res.sent.at(-1) === "boot" && res.answers >= 3, res.sent);
     const api = vm.runInContext("Object.keys(window.__aupply).sort().join()", draftPage);
     expect("the apply engine exposes the runner and not the draft calls", api.includes("runQueue") && !api.includes("sweep"), api);
     const wrong = vm.runInContext(runBlock.replace(/k:-?\d+/, "k:1"), draftPage);
     expect("a queue that does not match its checksum is refused by the page", String(wrong).startsWith("CORRUPT_QUEUE"), wrong);
     const fresh = stubPage();
     const all = await loadEngineIn(fresh, applyRes, accessA);
-    expect("a fresh page loads the apply engine in pieces", all.ready && all.booted?.ok && all.answers >= 4 && all.sent.includes("res_api") && !all.sent.includes("li_draft"), all.sent);
+    expect("a fresh page loads the apply engine in pieces", all.ready && all.booted?.ok && all.answers >= 4 && all.sent.includes("res_api") && !all.sent.some((n) => /^li_(sweep|screen)$/.test(n)), all.sent);
   }
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
   expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);

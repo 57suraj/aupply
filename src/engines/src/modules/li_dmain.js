@@ -1,4 +1,4 @@
-/* LinkedIn draft 2/2: window.__aupply for drafting (sweep, then prescreen). */
+/* LinkedIn draft 3/3: window.__aupply for drafting (sweep, then prescreen). */
 function li_dmain(X) {
   'use strict';
   const { CFG, S, ST, status, wait, payMax, trackerCount, sweep, prescreen, yearsOf } = X;

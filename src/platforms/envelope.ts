@@ -15,6 +15,14 @@ const ONLY_THE_ENGINE =
   "Only the engine applies: do not open job lists, click jobs or fill forms yourself, and do not take screenshots to verify its " +
   "work (its answers are the record) unless a step or rule here asks for one.";
 
+/** Seen 30 Sep: waits timed out at 45s while a draft ran, because Chrome throttles the
+    timers of a hidden tab (the window behind another one, or another tab in front). */
+const KEEP_VISIBLE =
+  "Keep this tab visible: if a status carries hid:1 the tab is hidden (another tab in front, or the Chrome window covered or " +
+  "minimized) and Chrome slows its scripts, so bring the tab to the front and tell the user if the window is covered. Poll " +
+  "quietly: call wait and say nothing in between, no screenshots. If a call times out the script is still running: use " +
+  "__aupply.status(), which answers at once, and never reload, navigate or open another tab.";
+
 const LOAD_RULE =
   "Load the engine into this page with load_engine, never by hand. (1) Run the loaded_check block (the text block after this " +
   "JSON) in the page with your browser tool's JavaScript execution. It answers 'ok' when the engine is ready: go to the steps. " +
@@ -44,7 +52,7 @@ export async function envelope(
   const { steps, rules, code, ...rest } = body;
   const issued = await issueEngine(userId, engine, cfg);
   return new Reply(
-    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE], load_rule: LOAD_RULE },
+    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, KEEP_VISIBLE], load_rule: LOAD_RULE },
     [codeBlock("loaded_check", issued.loadedCheck), ...(code ?? []).map((c) => codeBlock(c.name, c.code))]
   );
 }

@@ -70,18 +70,23 @@ function splitText(s: string, size: number): string[] {
   return out.length ? out : [""];
 }
 
-/** Statements that rebuild `value` at `path`: one statement when it fits, a bigger array
-    pushed in groups, a bigger object key by key, a bigger string in slices. */
+/** Values shorter than this stay on one line. */
+const ONE_LINE = 160;
+
+/** Statements that rebuild `value` at `path`, one short statement per line where it can be
+    split: a short value on one line, a longer array pushed element by element, a longer
+    object key by key, a string longer than a part in slices. */
 function statements(path: string, value: Json, limit: number, out: string[]): void {
   const json = lit(value);
-  if (path.length + json.length + 1 <= limit) {
+  const container = value !== null && typeof value === "object";
+  if (container ? json.length <= ONE_LINE : path.length + json.length + 1 <= limit) {
     out.push(`${path}=${json};`);
   } else if (Array.isArray(value)) {
     out.push(`${path}=[];`);
     let group: string[] = [];
     let size = 0;
     const flush = () => {
-      if (group.length) out.push(`${path}.push(${group.join(",")});`);
+      if (group.length) out.push(`${path}.push(\n${group.join(",\n")}\n);`);
       group = [];
       size = 0;
     };
@@ -91,31 +96,46 @@ function statements(path: string, value: Json, limit: number, out: string[]): vo
         flush();
         statements(`${path}[${index}]`, el, limit, out);
       } else {
-        if (size + s.length + 1 > limit) flush();
+        if (size + s.length + 2 > limit) flush();
         group.push(s);
-        size += s.length + 1;
+        size += s.length + 2;
       }
     });
     flush();
-  } else if (value && typeof value === "object") {
+  } else if (container) {
     out.push(`${path}={};`);
-    for (const [k, v] of Object.entries(value)) statements(`${path}[${lit(k)}]`, v, limit, out);
-  } else if (typeof value === "string") {
-    const [first, ...rest] = splitText(value, Math.floor(limit / 7)); // a character can cost 6 once escaped
-    out.push(`${path}=${lit(first)};`, ...rest.map((s) => `${path}+=${lit(s)};`));
+    for (const [k, v] of Object.entries(value as { [k: string]: Json })) statements(`${path}[${lit(k)}]`, v, limit, out);
   } else {
-    out.push(`${path}=${json};`);
+    const [first, ...rest] = splitText(value as string, Math.floor(limit / 7)); // a character can cost 6 once escaped
+    out.push(`${path}=${lit(first)};`, ...rest.map((s) => `${path}+=${lit(s)};`));
   }
 }
 
+/** Same as the build script's: a part's checksum covers its function's text with line edges
+    and blank lines ignored, so whitespace that changes in transit does not matter. */
+const norm = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+
+/** Same layout as the build script's parts: one short statement per line, the same for every part. */
+const wrap = (fnSrc: string, label: string, body: string[]) =>
+  [
+    "(()=>{",
+    `const f=${fnSrc};`,
+    'const s=(""+f).split("\\n").map((l)=>l.trim()).filter(Boolean).join("\\n");',
+    "let h=0;",
+    "for(let i=0;i<s.length;i++)h=h*31+s.charCodeAt(i)|0;",
+    `if(h!==${h31(norm(fnSrc))})return"corrupt part ${label}: run it again exactly as given";`,
+    ...body,
+    "})()",
+  ].join("\n");
+
 /**
  * The config as parts Claude runs in order. Each part builds its slice of window.__apc (a
- * plain object, not a JSON string inside JavaScript: nothing to unescape) and checks its
- * own text first, like a module. A part answers how far the config got (window.__ap.c is
- * "<tag>/<parts applied>", the bare tag once complete), so a config can be sent over
- * several answers and a part run out of order is refused. The last part sets window.__apk,
- * the checksum of the whole object, which the boot part verifies: a part skipped or run
- * twice cannot boot.
+ * plain object, not a JSON string inside JavaScript: nothing to unescape), one statement
+ * per line, and checks its own text first, like a module. A part answers how far the config
+ * got (window.__ap.c is "<tag>_<parts applied>", the bare tag once complete), so a config
+ * can be sent over several answers and a part run out of order is refused. The last part
+ * sets window.__apk, the checksum of the whole object, which the boot part verifies: a part
+ * skipped or run twice cannot boot.
  */
 function configParts(cfg: { h: string; v: string }): Part[] {
   // "__proto__" as a key would set a prototype instead of a value; answers keys are user text.
@@ -127,25 +147,22 @@ function configParts(cfg: { h: string; v: string }): Part[] {
   const bodies: string[] = [];
   let cur = "";
   for (const st of all) {
-    if (cur && cur.length + st.length > CONFIG_PART) {
+    if (cur && cur.length + st.length + 1 > CONFIG_PART) {
       bodies.push(cur);
       cur = "";
     }
-    cur += st;
+    cur += (cur ? "\n" : "") + st;
   }
   bodies.push(cur);
   return bodies.map((body, i) => {
     const n = i + 1;
     const last = n === bodies.length;
-    const fn = `function(c,a){${body}${last ? `window.__apk=${checksum};` : ""}a.c=${JSON.stringify(last ? tag : `${tag}_${n}`)};}`;
+    const fn = `function(c,a){\n${body}\n${last ? `window.__apk=${checksum};\n` : ""}a.c=${JSON.stringify(last ? tag : `${tag}_${n}`)};\n}`;
     const start =
       n === 1
-        ? "f(window.__apc={},a)"
-        : `if(a.c!==${JSON.stringify(`${tag}_${n - 1}`)})return"config${n} needs config${n - 1} first: run the config blocks in order from config1";f(window.__apc,a)`;
-    const code =
-      `(()=>{const f=${fn},s=""+f;let h=0;for(let i=0;i<s.length;i++)h=h*31+s.charCodeAt(i)|0;` +
-      `if(h!==${h31(fn)})return"corrupt part config${n}: run it again exactly as given";` +
-      `const a=window.__ap=window.__ap||{m:{},v:{}};${start};return JSON.stringify([a.v,a.c||0,a.e||0])})()`;
+        ? ["f(window.__apc={},a);"]
+        : [`if(a.c!==${JSON.stringify(`${tag}_${n - 1}`)})return"config${n} needs config${n - 1} first: run the config blocks in order from config1";`, "f(window.__apc,a);"];
+    const code = wrap(fn, `config${n}`, ["const a=window.__ap=window.__ap||{m:{},v:{}};", ...start, "return JSON.stringify([a.v,a.c||0,a.e||0]);"]);
     return { name: `config${n}`, kind: "config" as const, code };
   });
 }

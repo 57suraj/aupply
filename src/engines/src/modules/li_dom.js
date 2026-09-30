@@ -1,4 +1,4 @@
-/* LinkedIn apply 1/3: the page readers for the Easy Apply modal and the job page.
+/* LinkedIn apply 1/4: the page readers for the Easy Apply modal and the job page.
    Ported from applix 05-SCRIPTS-linkedin-engine.js (30 Sep 2026, live-tested) with the
    answer chain replaced by the shared resolver. The runner moves between jobs by SPA
    navigation, so the page, and the engine, stay alive for the whole queue. */

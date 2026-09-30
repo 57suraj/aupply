@@ -13,6 +13,12 @@
  * what to send next. The user's config travels in separate parts made per request
  * (src/engines/index.ts).
  *
+ * The code is emitted readable on purpose: real names, one statement per line, no minifier
+ * tricks. Claude copies every part with its own hands, and dense minified code is what it
+ * mis-copies (30 Sep: a ternary that lost its else branch, an ending that jumped to an
+ * earlier similar spot). Line breaks and indentation do not count in a part's checksum, so
+ * a part that only differs in whitespace still loads.
+ *
  * Checks, so a broken engine never ships (applix lost a run to one that did not parse):
  * every part parses and stays under PART_MAX; every name a module uses is declared, a
  * destructured import, or an allowlisted browser global; and every engine boots in a
@@ -30,7 +36,7 @@ import ts from "typescript";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const modDir = join(root, "src/engines/src/modules");
-const PART_MAX = 8000;
+const PART_MAX = 9000;
 
 /* The answer resolver (and what it needs): shared by every applying engine and by
    resolve_answers on the server. */
@@ -39,34 +45,56 @@ const SHARED = ["core", "pay", "res_base", "res_rules_a", "res_rules_b", "res_ap
    never receives the apply code (the form filler and the resolver), and an apply never
    receives the screening code. The other platforms keep one engine that the page caches. */
 const ENGINE_DEFS = {
-  linkedin_draft: { source: "LinkedIn", modules: ["core", "pay", "li_base", "li_draft", "li_dmain"], cache: null },
-  linkedin: { source: "LinkedIn", modules: [...SHARED, "li_base", "li_dom", "li_fill", "li_main"], cache: null },
+  linkedin_draft: { source: "LinkedIn", modules: ["core", "pay", "li_base", "li_sweep", "li_screen", "li_dmain"], cache: null },
+  linkedin: { source: "LinkedIn", modules: [...SHARED, "li_base", "li_dom", "li_fill", "li_job", "li_main"], cache: null },
   naukri: { source: "Naukri", modules: [...SHARED, "nk_chat", "nk_main"], cache: { storage: "localStorage", key: "__aupply_naukri" } },
   wellfound: { source: "Wellfound", modules: [...SHARED, "wf_apply", "wf_main"], cache: { storage: "sessionStorage", key: "__aupply_wellfound" } },
   indeed: { source: "Indeed", modules: [...SHARED, "in_fill", "in_main"], cache: { storage: "localStorage", key: "__aupply_indeed" } },
 };
 /* The only browser globals a module may use. Anything else is a missing declaration or
    import (a lib.dom global such as `status` would otherwise hide a forgotten import). */
-const BROWSER_GLOBALS = ["window", "document", "location", "history", "localStorage", "sessionStorage", "fetch", "URL", "setTimeout",
+const BROWSER_GLOBALS = ["window", "document", "location", "history", "localStorage", "sessionStorage", "fetch", "URL", "setTimeout", "clearTimeout",
   "MutationObserver", "Event", "KeyboardEvent", "MouseEvent", "PointerEvent", "PopStateEvent", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement"];
 
 const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 10);
 const h31 = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 const fail = (msg) => { console.error(`build-engines: ${msg}`); process.exit(1); };
 
-/** Minify one function (source text of a function declaration or expression). */
-async function minifyFn(src, label) {
-  const { code } = await transform(`__F__=${src}`, { minify: true, target: "chrome100", charset: "ascii", legalComments: "none" });
+/** Print one function (source text of a function declaration or expression) readably. */
+async function formatFn(src, label) {
+  const { code } = await transform(`__F__=${src}`, { minify: false, target: "chrome100", charset: "ascii", legalComments: "none" });
   const out = code.trim();
-  if (!out.startsWith("__F__=function") || !out.endsWith(";")) fail(`${label}: unexpected minifier output`);
-  return out.slice("__F__=".length, -1);
+  if (!out.startsWith("__F__ = function") || !out.endsWith(";")) fail(`${label}: unexpected printer output`);
+  const fn = out.slice("__F__ = ".length, -1);
+  // A part's checksum ignores line edges, which is only safe when no literal spans lines.
+  const sf = ts.createSourceFile(`${label}.js`, `x = ${fn}`, ts.ScriptTarget.ES2022, true);
+  const visit = (n) => {
+    if ((ts.isTemplateLiteral(n) || ts.isStringLiteral(n) || ts.isRegularExpressionLiteral(n)) && n.getText().includes("\n")) fail(`${label}: a literal spans lines`);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return fn;
 }
 
+/* A part's checksum covers its function's text with line edges and blank lines ignored, so
+   indentation, trailing spaces or line endings that change in transit do not matter, while
+   any other change does. */
+const norm = (s) => s.split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+
 /* A part runs its function's checksum before doing anything, so a character dropped or
-   changed while Claude pastes it is caught instead of misbehaving on a live form. */
-const guard = (fnSrc, label) =>
-  `const f=${fnSrc},s=""+f;let h=0;for(let i=0;i<s.length;i++)h=h*31+s.charCodeAt(i)|0;` +
-  `if(h!==${h31(fnSrc)})return"corrupt part ${label}: run it again exactly as given";`;
+   changed while Claude copies it is caught instead of misbehaving on a live form. One
+   short statement per line, the same for every part, which is easy to copy. */
+const wrap = (fnSrc, label, body) =>
+  [
+    "(()=>{",
+    `const f=${fnSrc};`,
+    'const s=(""+f).split("\\n").map((l)=>l.trim()).filter(Boolean).join("\\n");',
+    "let h=0;",
+    "for(let i=0;i<s.length;i++)h=h*31+s.charCodeAt(i)|0;",
+    `if(h!==${h31(norm(fnSrc))})return"corrupt part ${label}: run it again exactly as given";`,
+    ...body,
+    "})()",
+  ].join("\n");
 
 function checkPart(code, label) {
   new vm.Script(code, { filename: label });
@@ -85,9 +113,9 @@ for (const name of names) {
   if (!new RegExp(`^function ${name}\\(X\\) \\{$`, "m").test(src)) fail(`${name}.js must define function ${name}(X)`);
   new vm.Script(src, { filename: `${name}.js` });
   sources[name] = src;
-  const fn = await minifyFn(src.slice(src.indexOf(`function ${name}(X)`)), name);
-  const hash = sha(fn);
-  const code = `(()=>{${guard(fn, name)}const a=window.__ap=window.__ap||{m:{},v:{}};a.m.${name}=f;a.v.${name}="${hash}";return JSON.stringify([a.v,a.c||0,a.e||0])})()`;
+  const fn = await formatFn(src.slice(src.indexOf(`function ${name}(X)`)), name);
+  const hash = sha(norm(fn));
+  const code = wrap(fn, name, ["const a=window.__ap=window.__ap||{m:{},v:{}};", `a.m.${name}=f;`, `a.v.${name}="${hash}";`, "return JSON.stringify([a.v,a.c||0,a.e||0]);"]);
   checkPart(code, name);
   modules[name] = { hash, code };
 }
@@ -139,8 +167,8 @@ const bootSource = (list, source, cache) => `function B(){
 const engines = {};
 for (const [name, p] of Object.entries(ENGINE_DEFS)) {
   const list = p.modules;
-  const fn = await minifyFn(bootSource(list, p.source, p.cache), `${name} boot`);
-  const boot = `(()=>{${guard(fn, "boot")}return f()})()`;
+  const fn = await formatFn(bootSource(list, p.source, p.cache), `${name} boot`);
+  const boot = wrap(fn, "boot", ["return f();"]);
   checkPart(boot, `${name} boot`);
   const version = sha(list.map((n) => modules[n].hash).join(".") + "." + sha(boot));
   engines[name] = { version, source: p.source, modules: list, boot, cache: p.cache };
@@ -175,7 +203,7 @@ const API = {
 for (const [name, e] of Object.entries(engines)) {
   const cfg = {
     u: "build000", v: e.version, h: "cafe0000",
-    me: { fullName: "Test User", firstName: "Test", city: "Pune", country: "India", years: 2, skills: ["React", "Node.js"], noticeDays: 30, ctcCurrent: 600000, ctcExpected: 1000000, degree: "B.Tech" },
+    me: { fullName: "Test User", firstName: "Test", city: "Pune", country: "India", years: 2, skills: ["React", "Node.js"], noticeDays: 30, ctcCurrent: 600000, ctcExpected: 1000000, degree: "B.Tech", phone: "+91 98765 43210", phoneNational: "9876543210" },
     // A saved answer to a self-test question must not fail the self-test.
     keyed: { notice_period: "30" }, saved: [["What is your notice period?", "30 days"]], overrides: [["Date of birth", "skip"]], policy: { tech: "yes" },
     screen: { negTitle: "\\bsenior\\b", maxYears: 3, minPay: 500000, keywords: [["Backend Engineer", 3]], windows: ["r3600"], stack: [] },
@@ -209,6 +237,35 @@ for (const [name, e] of Object.entries(engines)) {
     let exp;
     try { exp = page.window.__ap.m[n](X); } catch (err) { fail(`${name}: module ${n} ${err.message}`); }
     for (const k of Object.keys(exp)) { if (k in X) fail(`${name}: module ${n} returns ${k}, which an earlier module already provides`); X[k] = exp[k]; }
+  }
+
+  // The resolver gives a phone field the national number, never the country code (live run 30 Sep).
+  if ("R" in X) {
+    const phone = X.R.A("Mobile phone number*");
+    if (!phone || phone.v !== "9876543210") fail(`${name}: a phone field got ${JSON.stringify(phone && phone.v)}, not the national number`);
+    const withCode = X.R.A("Phone number with country code");
+    if (!withCode || withCode.v !== "+91 98765 43210") fail(`${name}: a phone field asking for the country code got ${JSON.stringify(withCode && withCode.v)}`);
+  }
+
+  // wait(): answers at once when nothing runs, wakes on a result or when the run stops, and
+  // otherwise on one timer (a polling loop would add a throttled tab's delay to every tick).
+  {
+    const core = page.window.__ap.m.core({ CFG: { v: "t", h: "t" } });
+    const ST = core.makeStore("wait-check", page.window.localStorage);
+    const { wait } = core.makeStatus({ v: "t", h: "t" }, ST);
+    const timed = async (ms, act) => { const t0 = Date.now(); if (act) setTimeout(act, 40); const out = JSON.parse(await wait(ms)); return [Date.now() - t0, out]; };
+    let [ms] = await timed(5000);
+    if (ms > 200) fail(`${name}: wait took ${ms}ms with nothing running`);
+    ST.S.running = true;
+    let out;
+    [ms, out] = await timed(5000, () => ST.push({ r: "X" }));
+    if (ms > 1000 || out.new?.[0]?.r !== "X") fail(`${name}: wait did not wake on a result (${ms}ms)`);
+    [ms, out] = await timed(5000, () => { ST.S.running = false; ST.S.phase = "done"; });
+    if (ms > 1000 || out.running || out.phase !== "done") fail(`${name}: wait did not wake when the run stopped, or answered before the phase was set (${ms}ms, ${JSON.stringify(out)})`);
+    ST.S.running = true;
+    [ms] = await timed(150);
+    if (ms < 100 || ms > 1500) fail(`${name}: wait(150) took ${ms}ms`);
+    ST.S.running = false;
   }
 
   if (e.cache) {

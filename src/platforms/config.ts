@@ -82,6 +82,24 @@ function educationFacts(educations: Education[]) {
   };
 }
 
+/** The number as a phone field with its own country selector wants it: digits without the
+    country code. A live run (30 Sep) typed "+91 7680049641" into LinkedIn's field, and the
+    form's numeric repair then glued the code on ("917680049641"), so every job stalled. */
+export function nationalNumber(phone: string | null | undefined, country?: string | null): string | null {
+  const raw = (phone ?? "").trim();
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  // "+91 76800 49641", "+91-7680049641", "0091 7680049641", "+1 (555) 123-4567": a code set off from the number.
+  const set = raw.match(/^(?:\+|00)\s*(\d{1,3})[\s\-.()]+(\d[\d\s\-.()]*)$/);
+  if (set) return set[2].replace(/\D/g, "");
+  if (/^(?:\+|00)/.test(raw)) {
+    // "+917680049641": no separator. India is the v1 market: 91 and ten digits. Other codes are left as typed.
+    return /^91\d{10}$/.test(digits.replace(/^00/, "")) ? digits.replace(/^00/, "").slice(2) : digits;
+  }
+  if (/^india$/i.test(country ?? "") && /^91\d{10}$/.test(digits)) return digits.slice(2);
+  return digits.replace(/^0+(?=\d{10}$)/, "");
+}
+
 /** savedLimit: saved answers matched by exact question. Engines get the 60 most
     recently used short ones (they ride in the config parts; a long answer is left out
     rather than cut, and resolve_answers still finds it); the server can afford all. */
@@ -102,7 +120,7 @@ export function answerPack(d: UserData, overrides?: Record<string, string>, save
   return {
     me: {
       fullName: p.full_name, firstName: names[0] ?? null, lastName: names.length > 1 ? names[names.length - 1] : null,
-      preferredName: p.preferred_name, email: p.email, phone: p.phone,
+      preferredName: p.preferred_name, email: p.email, phone: p.phone, phoneNational: nationalNumber(p.phone, p.location_country),
       city: p.location_city, region: p.location_region, country: p.location_country,
       linkedin: links.linkedin ?? null, github: links.github ?? null, website: links.portfolio ?? links.website ?? null,
       currentCompany: p.current_company ?? current?.company ?? null,
