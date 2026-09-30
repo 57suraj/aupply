@@ -32,11 +32,15 @@ asked. Their TODO snippets predate the schema: `users` is now `profiles`,
 - **GitHub: `57suraj/aupply` only** (personal, public). This Mac's SSH key and
   keychain token belong to the company account `suraj-ambati`. Keep the remote
   on HTTPS. The repo-local credential helper is `gh auth git-credential`; confirm
-  `gh api user --jq .login` prints `57suraj` before pushing.
+  `gh api user --jq .login` prints `57suraj` before pushing. (`gh` itself is logged
+  in globally as 57suraj; git elsewhere still uses the company credentials.)
 - **Supabase**: project `aupply`, ref `lzkvozibmodysycztatl`, **ap-south-1 (Mumbai)**,
   org "Aupply". The Tokyo project `hidyqwnskqrekfqddzvp` is an unused leftover.
-- **Vercel**: account `aupply1k@gmail.com` (Hobby), project `aupply`.
-  Functions pinned to `bom1` to sit next to the database.
+- **Vercel**: account `aupply1k@gmail.com` (Hobby), project `aupply`
+  (`prj_nxOSlepuWXZOkzYhn4KfnuZVqLWW`), Git-linked, so every push to `main` deploys
+  to production. Public URL **https://aupply.vercel.app**; the other `*.vercel.app`
+  aliases sit behind Vercel Authentication. Functions pinned to `bom1` next to the DB.
+  The Vercel MCP connector returns 403 when given the team id; call it without `teamId`.
 
 ## Deployment (Vercel)
 
