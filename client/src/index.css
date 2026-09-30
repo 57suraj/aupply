@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  /* Completely invisible scrollbar across all browsers while maintaining smooth scrollability */
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: none !important; /* Firefox */
+    -ms-overflow-style: none !important; /* IE and Edge */
+  }
+
+  *::-webkit-scrollbar,
+  ::-webkit-scrollbar {
+    display: none !important; /* Chrome, Safari, Opera */
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  body {
+    @apply bg-[#09090b] text-zinc-100;
+  }
+
+  /* Selection */
+  ::selection {
+    background-color: #FF4D00;
+    color: #ffffff;
+  }
+}
+
+@layer utilities {
+  .text-display-xl {
+    font-size: clamp(3.5rem, 9vw, 8rem);
+    line-height: 0.94;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+  }
+
+  .text-display-lg {
+    font-size: clamp(2.25rem, 6vw, 5rem);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+    font-weight: 700;
+  }
+
+  .text-display-md {
+    font-size: clamp(1.5rem, 3.5vw, 2.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+
+  /* Subtle dark surface with fine micro-border */
+  .surface-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%), #121215;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .surface-card-hover {
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .surface-card-hover:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  }
+}
