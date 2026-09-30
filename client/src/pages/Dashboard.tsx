@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { createCheckoutSession } from "../lib/api";
 import { Nav } from "../components/Nav";
 import { Button } from "../components/Button";
+import { ResumeManager } from "../components/ResumeManager";
 
 const mcpUrl =
   (import.meta.env.VITE_MCP_BASE_URL as string | undefined) ||
@@ -13,14 +14,16 @@ function Section({
   title,
   children,
   placeholder,
+  className = "",
 }: {
   label: string;
   title: string;
   children?: React.ReactNode;
   placeholder?: string;
+  className?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#121216] overflow-hidden">
+    <div className={`rounded-2xl border border-white/[0.08] bg-[#121216] overflow-hidden ${className}`}>
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-white/[0.02]">
         <span className="text-xs text-accent font-bold uppercase tracking-wider">
           {label}
@@ -143,12 +146,10 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── Resume ────────────────────────────────────────── */}
+        <ResumeManager />
+
         {/* ── Profile sections (placeholders) ───────────────── */}
-        <Section
-          label="Profile"
-          title="Resume"
-          placeholder="Resume storage coming in next phase. Your resume and skills will be accessible to Claude through the getCandidateProfile and getResume MCP tools."
-        />
 
         <Section
           label="Profile"
@@ -165,6 +166,7 @@ export default function Dashboard() {
         <Section
           label="History"
           title="Application History"
+          className="md:col-span-2"
           placeholder="Application records coming in next phase. Track all roles Claude has researched or applied to via getApplicationHistory."
         />
 

@@ -14,8 +14,8 @@ data model is built on: dedup by (platform, job id), provisional vs confirmed
 answers, never inventing personal facts, outcomes that wait on a human.
 
 **Status:** backend works end to end (OAuth connector, 13 MCP tools, dashboard
-API). The dashboard UI sections are still placeholders ("coming in next phase");
-leave them until asked. **Payments are on hold**: the provider is undecided, so do
+API). Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
+the other sections are still placeholders ("coming in next phase"), leave them until asked. **Payments are on hold**: the provider is undecided, so do
 not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
 
 ## Layout
@@ -121,7 +121,7 @@ Domain semantics:
   A grant is a "connection" (listed and revoked at `/api/connections`).
 - Resume files live in private bucket `resumes` at `<user_id>/<resume_id>/<file_name>`;
   the browser uploads via a signed URL, then `POST /api/resumes/:id/file` extracts text
-  (PDF, txt, md; DOCX is stored but not parsed).
+  (PDF, DOCX, txt, md; legacy .doc is stored but not parsed).
 
 ## Open decisions
 

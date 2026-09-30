@@ -5,11 +5,12 @@
  * <user_id>/<resume_id>/<file_name>. The browser uploads directly with a
  * signed upload URL, then calls finalizeUpload so the server records the file
  * and extracts its text into `content` (what Claude reads). PDF, plain text
- * and Markdown are extracted; other formats keep the file only.
+ * DOCX and Markdown are extracted; other formats (e.g. legacy .doc) keep the file only.
  */
 
 import type { z } from "zod";
 import { extractText, getDocumentProxy } from "unpdf";
+import mammoth from "mammoth";
 import { getSupabaseClient } from "../db/supabase.js";
 import type { Json } from "../db/database.types.js";
 import { AppError, check, notFound, unwrap, unwrapMaybe } from "../lib/errors.js";
@@ -120,6 +121,13 @@ async function extractResumeText(bytes: Uint8Array, mimeType: string, fileName: 
     const pdf = await getDocumentProxy(bytes);
     const { text } = await extractText(pdf, { mergePages: true });
     return text.trim() || null;
+  }
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    lower.endsWith(".docx")
+  ) {
+    const { value } = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
+    return value.trim() || null;
   }
   if (mimeType.startsWith("text/") || lower.endsWith(".md") || lower.endsWith(".txt")) {
     return new TextDecoder().decode(bytes).trim() || null;

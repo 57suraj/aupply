@@ -17,6 +17,7 @@
 import "dotenv/config";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import JSZip from "jszip";
 
 const BASE = (process.env.E2E_BASE_URL || "http://localhost:3100").replace(/\/+$/, "");
 const RESOURCE = `${BASE}/mcp`;
@@ -161,6 +162,24 @@ function makePdf(text) {
   offsets.forEach((o) => (pdf += `${String(o).padStart(10, "0")} 00000 n \n`));
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return new TextEncoder().encode(pdf);
+}
+
+/** Minimal .docx (Office Open XML) with one paragraph of `text`. */
+async function makeDocx(text) {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+  );
+  zip.file(
+    "_rels/.rels",
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`
+  );
+  return zip.generateAsync({ type: "uint8array" });
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +436,20 @@ async function main() {
   expect("new default replaces old default", a.status === 201 && defaults?.length === 1 && defaults[0].id === a.body.id, defaults);
   r = await tool(accessA, "get_resume", { label: "full-stack" });
   expect("get_resume by label", !r.isError && r.data.resume.id === resumeId, r.data);
+
+  // Replace the file with a DOCX: text is re-extracted and the old file removed.
+  a = await http("POST", `/api/resumes/${resumeId}/upload-url`, { token: userToken, json: { file_name: "resume.docx" } });
+  const docx = a.body;
+  const docxUpload = await userClient.storage
+    .from("resumes")
+    .uploadToSignedUrl(docx.path, docx.token, await makeDocx("Word Resume TypeScript FastAPI"), {
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+  expect("upload DOCX", !docxUpload.error, docxUpload.error);
+  a = await http("POST", `/api/resumes/${resumeId}/file`, { token: userToken, json: { path: docx.path, replace_content: true } });
+  expect("DOCX text extracted and replaces PDF text", a.status === 200 && a.body.content_replaced && a.body.resume.content === "Word Resume TypeScript FastAPI", a.body);
+  const { data: oldFile } = await admin.storage.from("resumes").list(`${userId}/${resumeId}`);
+  expect("replaced file removed from storage", oldFile?.length === 1 && oldFile[0].name === "resume.docx", oldFile);
 
   section("Refresh, revoke, replay");
   const refresh1 = await http("POST", "/token", { form: { grant_type: "refresh_token", refresh_token: flowA.token.body.refresh_token, client_id: clientId } });

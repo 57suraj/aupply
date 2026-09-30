@@ -13,6 +13,9 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   iconPosition?: "left" | "right";
   loading?: boolean;
   fullWidth?: boolean;
+  /** Link-only attributes, used when `href` is set. */
+  target?: string;
+  rel?: string;
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -67,6 +70,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       className = "",
       children,
       disabled,
+      target,
+      rel,
       ...rest
     },
     ref
@@ -140,8 +145,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           href={href}
           className={baseClasses}
           id={rest.id}
-          target={rest.target}
-          rel={rest.rel}
+          target={target}
+          rel={rel}
           onClick={rest.onClick as unknown as React.MouseEventHandler<HTMLAnchorElement>}
         >
           {content}
