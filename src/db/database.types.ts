@@ -358,6 +358,155 @@ export type Database = {
         }
         Relationships: []
       }
+      oauth_authorization_codes: {
+        Row: {
+          client_id: string
+          code_challenge: string
+          code_hash: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          grant_id: string | null
+          redirect_uri: string
+          resource: string | null
+          scopes: string[]
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          code_challenge: string
+          code_hash: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          grant_id?: string | null
+          redirect_uri: string
+          resource?: string | null
+          scopes?: string[]
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          code_challenge?: string
+          code_hash?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          grant_id?: string | null
+          redirect_uri?: string
+          resource?: string | null
+          scopes?: string[]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "oauth_authorization_codes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "oauth_authorization_codes_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_grants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      oauth_clients: {
+        Row: {
+          client_id_issued_at: number
+          client_name: string | null
+          client_secret: string | null
+          client_secret_expires_at: number | null
+          created_at: string
+          id: string
+          metadata: Json
+          redirect_uris: string[]
+          token_endpoint_auth_method: string
+          updated_at: string
+        }
+        Insert: {
+          client_id_issued_at: number
+          client_name?: string | null
+          client_secret?: string | null
+          client_secret_expires_at?: number | null
+          created_at?: string
+          id: string
+          metadata?: Json
+          redirect_uris: string[]
+          token_endpoint_auth_method?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id_issued_at?: number
+          client_name?: string | null
+          client_secret?: string | null
+          client_secret_expires_at?: number | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          redirect_uris?: string[]
+          token_endpoint_auth_method?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      oauth_grants: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: string
+          last_used_at: string | null
+          metadata: Json
+          refresh_token_expires_at: string | null
+          refresh_token_hash: string | null
+          resource: string | null
+          revoked_at: string | null
+          scopes: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          metadata?: Json
+          refresh_token_expires_at?: string | null
+          refresh_token_hash?: string | null
+          resource?: string | null
+          revoked_at?: string | null
+          scopes?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          metadata?: Json
+          refresh_token_expires_at?: string | null
+          refresh_token_hash?: string | null
+          resource?: string | null
+          revoked_at?: string | null
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "oauth_grants_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       preferences: {
         Row: {
           created_at: string
@@ -717,6 +866,43 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      application_stats: {
+        Args: { p_tz?: string; p_user_id: string }
+        Returns: Json
+      }
+      check_existing_applications: {
+        Args: {
+          p_companies: string[]
+          p_external_ids: string[]
+          p_platform: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      find_similar_answers: {
+        Args: {
+          p_limit?: number
+          p_min_score?: number
+          p_query: string
+          p_user_id: string
+        }
+        Returns: {
+          answer: string
+          company_name: string
+          id: string
+          job_title: string
+          key: string
+          last_used_at: string
+          question: string
+          score: number
+          source: string
+          status: string
+        }[]
+      }
+      mark_answers_used: {
+        Args: { p_answer_ids: string[]; p_user_id: string }
+        Returns: undefined
+      }
       recompute_application_stage: {
         Args: { p_application_id: string }
         Returns: undefined

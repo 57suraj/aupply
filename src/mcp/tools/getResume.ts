@@ -1,45 +1,49 @@
 /**
  * Tool: get_resume
  *
- * Retrieves the authenticated user's most recent active resume content.
- *
- * TODO (Phase 2): Query the `resumes` table for `user_id = user.id`
- * where `is_active = true`. File storage / parsing is deferred to a later phase.
+ * Text of the resume to use (default unless a variant is named), plus the
+ * list of other variants so Claude can pick a better fit for a role.
  */
 
+import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthenticatedUser } from "../../auth/getAuthenticatedUser.js";
+import { listResumes, pickResume } from "../../services/resumes.js";
+import { READ_ONLY, run } from "../toolkit.js";
 
-export function registerGetResume(
-  server: McpServer,
-  _getUser: () => Promise<AuthenticatedUser>
-): void {
-  server.tool(
+export function registerGetResume(server: McpServer): void {
+  server.registerTool(
     "get_resume",
-    "Retrieve the authenticated user's active resume content for use during job applications.",
-    {},
-    async () => {
-      // TODO (Phase 2): Uncomment and implement:
-      // const user = await getUser();
-      // const { data, error } = await supabase
-      //   .from("resumes")
-      //   .select("*")
-      //   .eq("user_id", user.id)
-      //   .eq("is_active", true)
-      //   .order("created_at", { ascending: false })
-      //   .limit(1)
-      //   .single();
-      // if (error) throw error;
-      // return { content: [{ type: "text", text: data.content ?? "" }] };
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Not implemented yet. get_resume will return the user's active resume content in Phase 2.",
+    {
+      title: "Get resume",
+      description:
+        "Get the text of the user's resume. Returns the default resume unless resume_id or label " +
+        "names another variant, plus the list of all variants (id, label) so you can pick the one " +
+        "that best fits a role. The file itself is not returned; use the text to answer questions.",
+      inputSchema: {
+        resume_id: z.string().uuid().optional().describe("A specific resume variant id."),
+        label: z.string().max(100).optional().describe('A variant label, e.g. "AI/ML".'),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ resume_id, label }, extra) =>
+      run(extra, async (userId) => {
+        const [resume, variants] = await Promise.all([
+          pickResume(userId, { id: resume_id, label }),
+          listResumes(userId),
+        ]);
+        return {
+          resume: {
+            id: resume.id,
+            label: resume.label,
+            is_default: resume.is_default,
+            file_name: resume.file_name,
+            updated_at: resume.updated_at,
+            content:
+              resume.content ||
+              "(No text on file for this resume. Ask the user to paste it or upload a PDF in the Aupply dashboard.)",
           },
-        ],
-      };
-    }
+          variants: variants.map((v) => ({ id: v.id, label: v.label, is_default: v.is_default })),
+        };
+      })
   );
 }

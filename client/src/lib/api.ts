@@ -58,21 +58,41 @@ export async function fetchSubscription() {
 // OAuth consent
 // ---------------------------------------------------------------------------
 
-export async function submitOAuthConsent(params: {
-  clientId: string;
-  redirectUri: string;
-  state: string;
-  scope?: string;
-}): Promise<{ redirectUrl: string }> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Not authenticated");
+export interface AuthorizationDetails {
+  client: { name: string; uri: string | null };
+  redirectHost: string;
+  scopes: string[];
+  user: { email: string | null };
+}
 
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    return body.error || res.statusText;
+  } catch {
+    return res.statusText;
+  }
+}
+
+/** What the pending authorization request is asking for (from the signed `request` token). */
+export async function fetchAuthorizationDetails(request: string): Promise<AuthorizationDetails> {
+  const res = await fetch(`/api/oauth/authorization?request=${encodeURIComponent(request)}`, {
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res.json();
+}
+
+/** Approve or deny; returns the client callback URL to navigate to. */
+export async function submitOAuthConsent(params: {
+  request: string;
+  approve: boolean;
+}): Promise<{ redirectUrl: string }> {
   const res = await fetch("/api/oauth/consent", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...params, supabaseAccessToken: token }),
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await errorMessage(res));
   return res.json();
 }

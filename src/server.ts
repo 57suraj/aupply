@@ -35,7 +35,7 @@ app.listen(PORT, () => {
   console.log(`   Listening on http://localhost:${PORT}`);
   console.log(`   MCP:    http://localhost:${PORT}/mcp`);
   console.log(`   Health: http://localhost:${PORT}/health`);
-  console.log(`   OAuth:  http://localhost:${PORT}/oauth/*`);
+  console.log(`   OAuth:  http://localhost:${PORT}/.well-known/oauth-authorization-server`);
   console.log(`   API:    http://localhost:${PORT}/api/*`);
   console.log(`   Env:    ${process.env.NODE_ENV ?? "development"}\n`);
 });

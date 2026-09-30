@@ -1,19 +1,20 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { submitOAuthConsent } from "../lib/api";
+import { fetchAuthorizationDetails, submitOAuthConsent, type AuthorizationDetails } from "../lib/api";
 import { Button } from "../components/Button";
 
 /**
  * OAuth Consent page: /oauth/consent
  *
- * Displayed when Claude initiates an OAuth authorization flow.
+ * Displayed when Claude initiates an OAuth authorization flow. The backend's
+ * /authorize endpoint validates the request and redirects here with a signed
+ * `request` token; nothing else in the URL is trusted.
  * The user must be signed in; if not, they are redirected to /login
  * with oauth_return pointing back here.
  *
- * Once the user clicks "Authorize", we POST their Supabase session token
- * to /api/oauth/consent. The backend issues an auth code and returns the
- * redirect URL (Claude's callback).
+ * Authorize/Deny POSTs { request, approve } with the Supabase session to
+ * /api/oauth/consent, which returns the client's callback URL to navigate to.
  */
 export default function OAuthConsent() {
   const [searchParams] = useSearchParams();
@@ -21,11 +22,9 @@ export default function OAuthConsent() {
   const navigate = useNavigate();
   const [authorizing, setAuthorizing] = useState(false);
   const [error, setError] = useState("");
+  const [details, setDetails] = useState<AuthorizationDetails | null>(null);
 
-  const clientId = searchParams.get("client_id") || "";
-  const redirectUri = searchParams.get("redirect_uri") || "";
-  const state = searchParams.get("state") || "";
-  const scope = searchParams.get("scope") || "";
+  const request = searchParams.get("request") || "";
 
   // Redirect to login if not authenticated, preserving consent params
   useEffect(() => {
@@ -35,16 +34,23 @@ export default function OAuthConsent() {
     }
   }, [loading, user, navigate, searchParams]);
 
-  const handleAuthorize = async () => {
+  // Load what is being requested (client name, redirect host) once signed in
+  useEffect(() => {
+    if (loading || !user) return;
+    if (!request) {
+      setError("Missing authorization request. Start the connection again from Claude.");
+      return;
+    }
+    fetchAuthorizationDetails(request)
+      .then(setDetails)
+      .catch((e) => setError(e instanceof Error ? e.message : "Invalid authorization request."));
+  }, [loading, user, request]);
+
+  const respond = async (approve: boolean) => {
     setError("");
     setAuthorizing(true);
     try {
-      const { redirectUrl } = await submitOAuthConsent({
-        clientId,
-        redirectUri,
-        state,
-        scope,
-      });
+      const { redirectUrl } = await submitOAuthConsent({ request, approve });
       window.location.href = redirectUrl;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Authorization failed.");
@@ -52,15 +58,11 @@ export default function OAuthConsent() {
     }
   };
 
+  const handleAuthorize = () => respond(true);
+
   const handleDeny = () => {
-    if (redirectUri) {
-      const url = new URL(redirectUri);
-      url.searchParams.set("error", "access_denied");
-      if (state) url.searchParams.set("state", state);
-      window.location.href = url.toString();
-    } else {
-      navigate("/dashboard");
-    }
+    if (details) respond(false);
+    else navigate("/dashboard");
   };
 
   if (loading) {
@@ -96,11 +98,17 @@ export default function OAuthConsent() {
           </div>
 
           <h1 className="text-2xl font-bold uppercase tracking-tight text-white mb-2">
-            Connect Claude
+            Connect {details?.client.name ?? "Claude"}
           </h1>
           <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
-            Claude is requesting secure remote access to your Aupply MCP server. This allows
-            Claude to automatically read and write your job search data.
+            <strong className="text-zinc-200">{details?.client.name ?? "An application"}</strong> is
+            requesting access to your Aupply data. It will be able to read and update your job
+            search on your behalf.
+            {details && (
+              <span className="block mt-2 text-xs font-mono text-zinc-500" id="consent-redirect-host">
+                You will be returned to {details.redirectHost}
+              </span>
+            )}
           </p>
 
           <div className="rounded-xl border border-white/[0.08] bg-[#17171d] overflow-hidden mb-6">
@@ -118,11 +126,10 @@ export default function OAuthConsent() {
               </p>
               <ul className="text-sm text-zinc-300 space-y-2">
                 {[
-                  "Read candidate profile (skills, summary, bio)",
-                  "Read parsed resume details",
-                  "Read job preferences and parameters",
-                  "Read application log and history",
-                  "Save behavioral answers for future applications",
+                  "Read your profile, work history and education",
+                  "Read your resumes and job preferences",
+                  "Read and save answers to application questions",
+                  "Read and record applications, outcomes and sessions",
                 ].map((item) => (
                   <li key={item} className="flex items-center gap-2.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0 shadow-[0_0_6px_rgba(255,77,0,0.6)]" />
@@ -145,6 +152,7 @@ export default function OAuthConsent() {
               id="consent-authorize"
               onClick={handleAuthorize}
               loading={authorizing}
+              disabled={!details}
               variant="primary"
               size="lg"
               className="flex-1"

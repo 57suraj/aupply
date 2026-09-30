@@ -10,7 +10,8 @@
     "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev:server\" \"npm run dev:client\"",
     "build": "tsc && vite build",
     "start": "NODE_ENV=production node dist/server.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "node scripts/e2e.mjs"
   },
   "keywords": [
     "mcp",
@@ -32,6 +33,7 @@
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",
     "stripe": "^22.6.2",
+    "unpdf": "^1.8.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

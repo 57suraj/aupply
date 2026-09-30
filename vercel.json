@@ -3,15 +3,45 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "client/dist",
-  "regions": ["bom1"],
+  "regions": [
+    "bom1"
+  ],
   "rewrites": [
-    { "source": "/mcp", "destination": "/api" },
-    { "source": "/health", "destination": "/api" },
-    { "source": "/oauth/authorize", "destination": "/api" },
-    { "source": "/oauth/token", "destination": "/api" },
-    { "source": "/oauth/callback", "destination": "/api" },
-    { "source": "/.well-known/:path*", "destination": "/api" },
-    { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/mcp",
+      "destination": "/api"
+    },
+    {
+      "source": "/health",
+      "destination": "/api"
+    },
+    {
+      "source": "/authorize",
+      "destination": "/api"
+    },
+    {
+      "source": "/token",
+      "destination": "/api"
+    },
+    {
+      "source": "/register",
+      "destination": "/api"
+    },
+    {
+      "source": "/revoke",
+      "destination": "/api"
+    },
+    {
+      "source": "/.well-known/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

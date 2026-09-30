@@ -1,42 +1,27 @@
 /**
  * Tool: get_preferences
  *
- * Retrieves the authenticated user's job-search preferences, such as
- * desired roles, locations, salary expectations, and companies to target or avoid.
- *
- * TODO (Phase 2): Query the `preferences` table for `user_id = user.id`.
+ * The user's job-search criteria: target roles, locations, pay floor,
+ * experience cap, stacks and companies to skip, channels and limits.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthenticatedUser } from "../../auth/getAuthenticatedUser.js";
+import { getPreferences } from "../../services/candidate.js";
+import { READ_ONLY, run } from "../toolkit.js";
 
-export function registerGetPreferences(
-  server: McpServer,
-  _getUser: () => Promise<AuthenticatedUser>
-): void {
-  server.tool(
+export function registerGetPreferences(server: McpServer): void {
+  server.registerTool(
     "get_preferences",
-    "Retrieve the authenticated user's job-search preferences including desired roles, locations, salary range, and target companies.",
-    {},
-    async () => {
-      // TODO (Phase 2): Uncomment and implement:
-      // const user = await getUser();
-      // const { data, error } = await supabase
-      //   .from("preferences")
-      //   .select("*")
-      //   .eq("user_id", user.id)
-      //   .single();
-      // if (error) throw error;
-      // return { content: [{ type: "text", text: JSON.stringify(data) }] };
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Not implemented yet. get_preferences will return the user's job-search preferences in Phase 2.",
-          },
-        ],
-      };
-    }
+    {
+      title: "Get job preferences",
+      description:
+        "Get the user's job-search preferences: desired roles and seniority, locations and work " +
+        "modes, min_salary (skip anything below it) and expected_salary (state it when asked), " +
+        "max_years_required (skip postings that ask for more), keywords and companies to include " +
+        "or exclude, enabled platforms, max posting age, daily application limit, and free-form " +
+        "notes. Use these to filter jobs before applying.",
+      annotations: READ_ONLY,
+    },
+    async (extra) => run(extra, (userId) => getPreferences(userId))
   );
 }
