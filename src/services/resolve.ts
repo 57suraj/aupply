@@ -23,7 +23,7 @@ const PROFILE_KEYS = new Set([
   "name.full", "name.first", "name.last", "name.preferred", "email", "phone", "links.linkedin", "links.portfolio",
   "education.major", "education.school", "education.degree", "education.grade", "education.grade_12",
   "education.grade_10", "education.has_degree", "employment.current_company", "employment.current_title",
-  "pitch.summary", "skills_text", "role.category",
+  "pitch.summary", "skills_text", "role.category", "experience.years_at_least",
 ]);
 
 const MIN_SIMILARITY = 0.45;
@@ -49,7 +49,7 @@ export async function resolveAnswers(userId: string, input: { questions: Questio
   return Promise.all(
     input.questions.map(async (item) => {
       const q = item.q.slice(0, 120);
-      const a = R.A(item.q);
+      const a = R.A(item.q, item.company);
       if (a?.protected) {
         return { q, status: "protected", key: a.what, note: "Aupply never invents this: ask the user, or skip the job" };
       }

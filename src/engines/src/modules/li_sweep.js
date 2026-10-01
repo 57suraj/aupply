@@ -3,7 +3,7 @@
    engine loads it: applying never needs the screening code. */
 function li_sweep(X) {
   'use strict';
-  const { CFG, S, ST, P, sleep, clean, cut, aid, trackerCount } = X;
+  const { CFG, S, ST, P, sleep, clean, cut, aid, chunks, trackerCount } = X;
   const SC = CFG.screen || {};
 
   // DOMParser is neutered by Trusted Types, so the guest API HTML is parsed by regex.
@@ -71,9 +71,12 @@ function li_sweep(X) {
         // Job-ad networks last (they land but never reply), last-hour postings first.
         keep.sort((a, b) => a.agg - b.agg || (a.w === '1h' ? 0 : 1) - (b.w === '1h' ? 0 : 1));
         S.cand = keep;
-        ST.push(Object.assign({ phase: 'swept', ids: keep.map((j) => j.id), found: map.size, dropped, tracker, a: aid() }, stop ? { stop } : {}));
+        // The ids in chunks that fit one answer, then the summary with done:1.
+        const ids = keep.map((j) => j.id);
+        for (const part of chunks(ids, 600)) ST.push({ phase: 'swept', ids: part, a: aid() });
+        ST.push(Object.assign({ phase: 'swept', done: 1, n: ids.length, found: map.size, dropped, tracker, a: aid() }, stop ? { stop } : {}));
       } catch (e) {
-        ST.push({ phase: 'swept', ids: [], error: cut(e && e.message, 100), a: aid() });
+        ST.push({ phase: 'swept', done: 1, n: 0, error: cut(e && e.message, 100), a: aid() });
       }
       S.running = false; S.phase = 'swept';
     })();

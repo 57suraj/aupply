@@ -5,16 +5,30 @@
    question wrongly in a live application (see docs/automation-tools.md). */
 function res_rules_a(X) {
   'use strict';
-  const { ME, KEYED, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, years, months, lakhs, techYes, titleWords } = X;
+  const { ME, KEYED, norm, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, years, months, lakhs, techYes, titleWords } = X;
 
-  const rulesA = (s) => {
+  // "Do you have 2+ years of software development experience?" is a yes/no on the user's
+  // own total years, not a technology question (1 Oct: answered Yes for a user with 0.5).
+  // A threshold that names a technology ("3+ years with React") stays with the tech rules.
+  const GEN = '(?:hands.?on|professional|relevant|total|overall|industry|work|working|full.?time|it|software|engineering|development|developer|backend|back.?end|frontend|front.?end|full.?stack|web|programming|coding|technical)';
+  const THRESHOLD = new RegExp('^(?:do|have|are|did) you\\b.*?(\\d+(?:\\.\\d+)?)\\s*\\+?\\s*(?:or more |plus )?years?\\s+(?:of |in )?(?:' + GEN + '\\s+)*experience(?:\\s+(?:in|as)\\s+(?:an? |the )?(?:' + GEN + '\\s*)+)?$');
+  // The employer's name, so "Have you previously worked with WNS?" reads as a former-employee
+  // question and not as "worked with <technology>" (1 Oct: answered Yes).
+  const CO_STOP = /^(the|inc|ltd|llc|llp|pvt|private|limited|technologies|technology|tech|solutions|services|systems|software|group|india|global|corp|corporation|company|labs)$/;
+  const coRe = (co) => { const w = norm(co).split(' ').find((x) => x.length > 2 && !CO_STOP.test(x)); return w ? new RegExp('\\b' + esc(w) + '\\b') : null; };
+
+  // co: the employer's name when the caller knows it.
+  const rulesA = (s, co) => {
     let m;
     const monthly = /per month|monthly|\/\s*month/.test(s);
     const perYear = (n) => (n == null ? null : monthly ? Math.round(n / 12) : n);
+    const coName = coRe(co);
 
     for (const [re, key] of PROTECTED) if (re.test(s)) return has(KEYED[key]) ? val(key, KEYED[key]) : { k: 'protected', v: null, protected: true, what: key };
     if (SRC.test(s)) return val('source', SOURCE, { p: new RegExp(esc(SOURCE), 'i') });
     if (EEO.test(s)) return val('eeo', saved('eeo', null), { eeo: true });
+    m = s.match(THRESHOLD);
+    if (m) { const ok = ME.years == null ? null : ME.years >= parseFloat(m[1]); return val('experience.years_at_least', ok == null ? null : ok ? 'Yes' : 'No', { yn: ok == null ? null : ok ? 'yes' : 'no' }); }
 
     // Numeric questions first, before any Yes rule can fire (amendments 69, 79).
     if (/how much (total |overall |relevant )?experience/.test(s)) return val('experience.years', years);
@@ -35,7 +49,8 @@ function res_rules_a(X) {
 
     if (/country of residence|country do you (live|reside)|which country|where do you (currently )?reside/.test(s)) return val('location.country', ME.country, { p: ME.country ? new RegExp('^' + esc(ME.country) + '$', 'i') : null });
     // "Have you ever worked FOR <Company>" is not the capability question "worked WITH X".
-    if (/have you ever worked (for|at)|current or former (employee|intern|contractor)|ever been employed (by|at)|are you a (current|former) |previously (worked|employed) (for|at)|worked (for|with) us before|employed by|offer from|associated with/.test(s)) return val('former_employee', saved('former_employee', 'No'), { p: /^no\b|never employed|not employed/i });
+    if (/have you ever worked (for|at)|current or former (employee|intern|contractor)|ever been employed (by|at)|are you a (current|former) |previously (worked|employed) (for|at)|worked (for|with) us before|employed by|offer from|associated with/.test(s) ||
+      (coName && coName.test(s) && /\b(worked|employed|employee|interned|previously)\b/.test(s))) return val('former_employee', saved('former_employee', 'No'), { p: /^no\b|never employed|not employed/i });
     if (/role category|which (role|job) (category|function)|most closely matches your (current|recent)/.test(s)) return val('role.category', ME.currentTitle, { p: titleWords(ME.currentTitle) });
     if (/willing to relocate/.test(s) && /currently live|do you (currently )?(live|reside)|or are you/.test(s)) return val('relocate', ME.relocate === false ? null : 'I am willing to relocate', { p: /willing to relocate/i });
     if (/non.?compete|restrictive covenant|non.?solicit/.test(s)) return val('non_compete', saved('non_compete', 'No'), { yn: 'no' });

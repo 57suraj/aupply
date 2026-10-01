@@ -1,8 +1,10 @@
 /* LinkedIn apply 2/4: filling the Easy Apply form: fill() answers every field the modal
-   shows, repair() converts a word typed into a numeric field. */
+   shows, repair() turns what a numeric field refused (a word, a decimal) into a whole number. */
 function li_fill(X) {
   'use strict';
-  const { ME, R, txt, $$, vis, modal, lab, fields, optText, radios, setVal, CONSENT, NEVERTICK } = X;
+  const { ME, R, txt, $$, vis, modal, lab, fields, optText, radios, setVal, pageTitle, CONSENT, NEVERTICK } = X;
+  // LinkedIn's years fields take whole numbers only: 0.5 is "Invalid input" (1 Oct, two stalls).
+  const whole = (v) => (/^\d+\.\d+$/.test(String(v)) ? String(Math.round(+v)) : v);
 
   // Month/year selects with no label anywhere: education dates or employment dates.
   const dateFill = () => {
@@ -24,6 +26,7 @@ function li_fill(X) {
     const m = modal();
     if (!m) return { log, un, prot, typeahead };
     const required = (el, L) => el.required || el.getAttribute('aria-required') === 'true' || /\*$/.test(L);
+    const co = pageTitle().co; // the employer, for "have you worked with <them>" questions
     for (const el of fields()) {
       if (el.type === 'radio' || el.type === 'checkbox') continue;
       const L = lab(el);
@@ -31,7 +34,7 @@ function li_fill(X) {
         const cur = [...el.options].find((o) => o.value === el.value);
         if (el.value && cur && !/^(select|choose)/i.test(cur.text || '')) continue;
         const opts = [...el.options].map((o) => ({ v: o.value, t: (o.text || '').trim() }));
-        const a = R.A(L);
+        const a = R.A(L, co);
         if (a && a.protected) { prot.push(L); continue; }
         let i = R.pickOpt(a, opts.map((o) => o.t));
         if (i < 0 || !opts[i].v) i = R.lowStakes(L, opts.map((o) => o.t));
@@ -39,9 +42,10 @@ function li_fill(X) {
         un.push(L + ' [opts:' + opts.slice(0, 6).map((o) => o.t).join('/') + ']');
       } else {
         if ((el.value || '').trim()) continue;
-        const a = R.A(L);
+        const a = R.A(L, co);
         if (a && a.protected) { if (required(el, L)) prot.push(L); continue; }
-        const v = a ? (a.text != null ? a.text : a.v) : null;
+        let v = a ? (a.text != null ? a.text : a.v) : null;
+        if (el.tagName === 'INPUT' && a && /^experience\.(years|tech)$/.test(a.k)) v = whole(v);
         if (v == null || v === '') { if (required(el, L)) un.push(L); continue; }
         setVal(el, String(v));
         log.push([L, String(v)]);
@@ -55,7 +59,7 @@ function li_fill(X) {
     for (const g of radios()) {
       if (g.val) continue;
       if (/\.pdf|resume/i.test(g.q)) { g.els[0].click(); continue; }
-      const a = R.A(g.q);
+      const a = R.A(g.q, co);
       if (a && a.protected) { prot.push(g.q); continue; }
       let i = R.pickOpt(a, g.opts);
       if (i < 0) i = R.lowStakes(g.q, g.opts);
@@ -75,7 +79,7 @@ function li_fill(X) {
       if (opts.every((t) => CONSENT.test(t) || NEVERTICK.test(t))) continue;
       const lg = fs.querySelector('legend');
       const q = (lg ? txt(lg) : txt(fs.previousElementSibling)).replace(/\*$/, '').slice(0, 160);
-      const a = R.A(q);
+      const a = R.A(q, co);
       if (a && a.protected) { prot.push(q); continue; }
       const i = R.pickOpt(a, opts);
       if (i >= 0) { list[i].click(); log.push([q, opts[i]]); } else if (/\*$/.test(txt(lg) || '') || fs.querySelector('[aria-required=true],[required]')) un.push(q + ' [opts:' + opts.join('/') + ']');
@@ -89,8 +93,8 @@ function li_fill(X) {
     return { log, un, prot, typeahead };
   };
 
-  // A numeric field that received a word: read LinkedIn's validation message and
-  // convert (Yes -> years, No -> 0).
+  // A numeric field that refused its value: read LinkedIn's validation message and
+  // convert (Yes -> years, No -> 0, a decimal -> the nearest whole number).
   const repair = () => {
     let n = 0;
     for (const el of fields()) {
@@ -99,8 +103,9 @@ function li_fill(X) {
       for (let k = 0; k < 4 && p; k++) { p = p.parentElement; if (p && /invalid input|must be a (number|whole number|decimal)|enter a (valid|whole) number|larger than|smaller than|between \d/i.test(p.innerText || '')) { box = p; break; } }
       if (!box) continue;
       const v = (el.value || '').trim();
-      if (/^\d+(\.\d+)?$/.test(v)) continue;
-      const nv = /^no$/i.test(v) ? '0' : v.replace(/[^\d.]/g, '') || (ME.years != null ? String(ME.years) : '');
+      if (/^\d+$/.test(v)) continue;
+      const nv = whole(/^no$/i.test(v) ? '0' : v.replace(/[^\d.]/g, '') || (ME.years != null ? String(ME.years) : ''));
+      if (nv === v) continue;
       if (!nv) continue;
       setVal(el, nv);
       n++;

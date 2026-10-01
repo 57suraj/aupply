@@ -19,9 +19,36 @@ function core(X) {
   // The checksum Aupply puts on anything Claude copies into the page (src/engines/index.ts).
   const h31 = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 
+  /* The Chrome extension cuts a JavaScript answer at 1000 characters (live run 1 Oct: the
+     sweep's ids and the prescreen's drops came back cut off, so they could not be passed
+     on as-is). No status answer exceeds ANSWER_MAX: push() trims a result to ITEM_MAX
+     (its longest list loses entries, and cut:1 says so), status() hands out only the
+     results that fit and says how many are left in `more`, and a producer with a big
+     output (a sweep's ids, a prescreen's keep and drop) pushes it in chunks(). */
+  const ANSWER_MAX = 900;
+  const ITEM_MAX = 700;
+  const size = (o) => JSON.stringify(o).length;
+  const fit = (rec) => {
+    while (size(rec) > ITEM_MAX) {
+      const k = Object.keys(rec).filter((x) => Array.isArray(rec[x]) && rec[x].length).sort((a, b) => size(rec[b]) - size(rec[a]))[0];
+      if (!k) break;
+      rec[k].pop();
+      rec.cut = 1;
+    }
+    return rec;
+  };
+  const chunks = (list, room) => {
+    const out = [];
+    let cur = [];
+    for (const x of list) { if (cur.length && size(cur) + size(x) + 1 > room) { out.push(cur); cur = []; } cur.push(x); }
+    if (cur.length) out.push(cur);
+    return out;
+  };
+
   /* Result store. Every result is persisted (so nothing is lost if the page or session
-     dies) and handed to Claude once: status()/wait() return only what is new. `running`
-     wakes the waiters when it turns false, and push() wakes them when a result lands. */
+     dies) and handed to Claude once: status()/wait() return only what is new, as much of
+     it as fits in one answer. `running` wakes the waiters when it turns false, and push()
+     wakes them when a result lands. */
   function makeStore(key, storage) {
     const S = { seq: 0, cur: 0, items: [], phase: 'idle', info: {} };
     const waiters = new Set();
@@ -41,9 +68,24 @@ function core(X) {
     return {
       S,
       waiters,
-      push(rec) { rec.s = ++S.seq; S.items.push(rec); save(); wake(); return rec; },
+      push(rec) { rec.s = ++S.seq; S.items.push(fit(rec)); save(); wake(); return rec; },
       pending() { return S.items.some((r) => r.s > S.cur); },
-      since() { const out = S.items.filter((r) => r.s > S.cur); S.cur = S.seq; save(); return out; },
+      // The results not yet handed out, oldest first, up to `room` characters (at least one).
+      since(room) {
+        const out = [];
+        let used = 0;
+        for (const r of S.items) {
+          if (r.s <= S.cur) continue;
+          const n = size(r) + 1;
+          if (out.length && used + n > room) break;
+          out.push(r);
+          used += n;
+          S.cur = r.s;
+        }
+        save();
+        return out;
+      },
+      left() { return S.items.filter((r) => r.s > S.cur).length; },
       all() { return S.items.slice(); },
     };
   }
@@ -51,10 +93,14 @@ function core(X) {
   function makeStatus(CFG, ST) {
     const S = ST.S;
     // hid: 1 means the tab is hidden (another tab in front, the window covered or minimized).
-    const status = () => JSON.stringify(Object.assign(
-      { v: CFG.v, phase: S.phase, running: !!S.running, new: ST.since() },
-      document.hidden ? { hid: 1 } : {},
-      S.info && Object.keys(S.info).length ? S.info : {}));
+    // more: N means N results did not fit in this answer; the next call returns them at once.
+    const status = () => {
+      const head = { v: CFG.v, phase: S.phase, running: !!S.running };
+      const tail = Object.assign(document.hidden ? { hid: 1 } : {}, S.info && Object.keys(S.info).length ? S.info : {});
+      const items = ST.since(ANSWER_MAX - size(head) - size(tail) - 30);
+      const more = ST.left();
+      return JSON.stringify(Object.assign(head, { new: items }, more ? { more } : {}, tail));
+    };
     /* Long poll: answers as soon as something new lands or the run stops, at most 35s (the
        browser tool gives up at 45s). One timer plus events, not a loop of one-second sleeps:
        Chrome delays the timers of a throttled tab, and a loop adds that delay to every tick
@@ -70,5 +116,5 @@ function core(X) {
     return { status, wait };
   }
 
-  return { sleep, jitter, txt, clean, san, cut, aid, esc, h31, makeStore, makeStatus };
+  return { sleep, jitter, txt, clean, san, cut, aid, esc, h31, chunks, makeStore, makeStatus };
 }

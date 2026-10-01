@@ -563,6 +563,13 @@ Rules every engine follows, from the browser tool's limits:
   timed out at the tool's 45s). A status carries `hid:1` when the tab is hidden, and the
   LinkedIn runner waits for the tab to be shown before each job: Chrome throttles the
   timers of a hidden tab and LinkedIn's modal stalls in it.
+- **No answer longer than 900 characters.** The Chrome extension cuts a JavaScript answer
+  at exactly 1000 characters (1 Oct: the sweep's 66 ids and the prescreen's drops came back
+  cut off, so they could not be passed on as-is). `core` caps every status answer
+  (`ANSWER_MAX`), trims a result to `ITEM_MAX` (its longest list loses entries, `cut:1`),
+  and hands out only the results that fit, with `more:N` for the rest; Claude calls
+  `status()` again until `more` is gone. The sweep and the prescreen push their lists in
+  chunks and end with a `done:1` summary. The build checks that no answer passes 1000.
 - **No call blocks longer than about 35s.** The browser tool times out at 45s, so longer
   work runs detached and is polled.
 - **`status()` and `wait()` return compact JSON with job ids only, and only what changed
@@ -654,7 +661,14 @@ years of X" or stack question, inside any application (engine or by hand):
 - A saved answer for that technology always wins over the policy.
 - The policy covers technology and stack only. Facts keep their own rules: "worked
   for <company>" is No, sponsorship follows the saved answers, protected keys are never
-  inferred.
+  inferred. Three facts that got the blanket Yes in the first live run (1 Oct): a total
+  experience threshold ("Do you have 2+ years of software development experience?") is
+  answered from the user's years; "worked with <the employer>" is the former-employee
+  question (the engine passes the employer's name to `R.A`); a driver's license, vehicle
+  or laptop is asked, never assumed.
+- LinkedIn's years fields take whole numbers only ("Invalid input" for 0.5, 1 Oct): the
+  form filler rounds years to the nearest whole number, and `repair()` rounds any decimal
+  a numeric field refuses.
 - The asking happens earlier, at draft time (section 8, stack check), which is where
   the user decides whether a job outside their stack is worth applying to at all.
 

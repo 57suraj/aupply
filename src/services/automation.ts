@@ -424,7 +424,7 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
     ...(stopped ? { stopped } : {}),
     ...(trackerCheck ? { tracker: trackerCheck } : {}),
     ...(cap ? { cap_left: cap.left } : {}),
-    next: next.length ? next : ["Continue polling; report the next batch."],
+    next: next.length ? next : [input.tracker?.after != null ? "This queue is done: nothing left to do for it." : "Continue polling; report the next batch."],
   };
 }
 

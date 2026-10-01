@@ -2,7 +2,7 @@
    10 minute pause on the first 429, a stop on the second) and keeps the best ones. */
 function li_screen(X) {
   'use strict';
-  const { CFG, S, ST, P, payMax, sleep, clean, cut, aid } = X;
+  const { CFG, S, ST, P, payMax, sleep, clean, cut, aid, chunks } = X;
   const SC = CFG.screen || {};
 
   // Years from the FIRST match that reads as an experience requirement; matches in a
@@ -70,7 +70,7 @@ function li_screen(X) {
             if (rec.v === 'RATE_LIMITED') { stop = 'rate_limited_jd'; break; }
           }
           if (rec.v === 'keep') {
-            const k = { id: j.id, t: cut(j.t, 80), co: cut(j.co, 50), loc: cut(j.loc, 40), w: j.w };
+            const k = { id: j.id, t: cut(j.t, 70), co: cut(j.co, 40), loc: cut(j.loc, 30), w: j.w };
             if (j.agg) k.agg = 1;
             if (rec.minY != null) k.minY = rec.minY;
             if (rec.yu) k.yu = 1;
@@ -79,14 +79,17 @@ function li_screen(X) {
             if (rec.sm && rec.sm.length) k.sm = rec.sm;
             keep.push(k);
           } else if (!/^(HTTP|ERR)/.test(rec.v)) {
-            drop.push({ id: j.id, r: rec.v, t: cut(j.t, 60), co: cut(j.co, 40) });
+            drop.push({ id: j.id, r: rec.v, t: cut(j.t, 50), co: cut(j.co, 30) });
           }
           await sleep(P.jd);
         }
       } catch (e) {
         stop = 'error: ' + cut(e && e.message, 80);
       }
-      ST.push(Object.assign({ phase: 'screened', keep, drop, a: aid() }, stop ? { stop } : {}));
+      // keep and drop in chunks that fit one answer, then the summary with done:1.
+      for (const part of chunks(keep, 600)) ST.push({ phase: 'screened', keep: part, a: aid() });
+      for (const part of chunks(drop, 600)) ST.push({ phase: 'screened', drop: part, a: aid() });
+      ST.push(Object.assign({ phase: 'screened', done: 1, kept: keep.length, dropped: drop.length, a: aid() }, stop ? { stop } : {}));
       S.running = false; S.phase = 'screened';
     })();
     return 'started';

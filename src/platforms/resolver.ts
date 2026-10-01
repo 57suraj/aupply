@@ -20,7 +20,7 @@ export interface ResolverAnswer {
 }
 
 export interface Resolver {
-  A(question: string): ResolverAnswer | null;
+  A(question: string, company?: string): ResolverAnswer | null;
   pickOpt(a: ResolverAnswer | null, texts: string[]): number;
   lowStakes(question: string, texts: string[]): number;
   norm(s: string): string;

@@ -1,5 +1,5 @@
 /* Answer resolver 4/4: R, what the engines and resolve_answers call.
-   R.A(label) returns { k, v, ... } or null:
+   R.A(label, co) returns { k, v, ... } or null (co: the employer's name, when known):
      k      canonical key (stable, used by the self-test and the server)
      v      the answer, or null when the user's data lacks it (the caller then asks)
      text   free-text form of the answer when it differs from v
@@ -11,7 +11,7 @@
 function res_api(X) {
   'use strict';
   const { SOURCE, esc, has, norm, OVER, SAVED, val, SRC, EEO, band, moneyRange, numRange, daysBand, payMax, lakhs, rulesA, rulesB } = X;
-  const rules = (s) => rulesA(s) || rulesB(s);
+  const rules = (s, co) => rulesA(s, co) || rulesB(s);
 
   const real = (t) => { const s = String(t || '').trim(); return !!s && !/^(select|choose|--|please)/i.test(s); };
   const pickOpt = (a, texts) => {
@@ -56,24 +56,24 @@ function res_api(X) {
   // field: resolve the stem, answer with the matching number.
   const INLINE = /(\d+)\s*[.)]\s*([A-Za-z][A-Za-z .\/&'-]{1,28})/g;
   // The rules alone, without the user's overrides and saved answers.
-  const ruled = (label) => {
+  const ruled = (label, co) => {
     const opts = [...label.matchAll(INLINE)].map((x) => ({ n: x[1], t: x[2].trim() }));
     const s = label.replace(/\bexps?\b/gi, 'experience').replace(/\byrs?\b/gi, 'years').toLowerCase().replace(/[?*:]+\s*$/, '').replace(/\s+/g, ' ').trim();
     if (opts.length >= 2) {
       const stem = s.replace(INLINE, ' ').replace(/\s+/g, ' ').trim();
-      const b = rules(stem);
+      const b = rules(stem, co);
       if (b && has(b.v)) { const i = pickOpt(b, opts.map((o) => o.t)); if (i >= 0) return val(b.k, opts[i].n); }
       return b ? val(b.k, null) : null;
     }
-    return rules(s);
+    return rules(s, co);
   };
-  const A = (raw) => {
+  const A = (raw, co) => {
     const label = String(raw || '');
     const n = norm(label);
     if (!n) return null;
     if (OVER.has(n)) return val('override', OVER.get(n));
     if (SAVED.has(n)) return val('saved', SAVED.get(n));
-    return ruled(label);
+    return ruled(label, co);
   };
 
   // Rule keys, not values, and the rules alone (a saved answer to one of these questions
@@ -92,8 +92,12 @@ function res_api(X) {
       ['Date of birth', 'protected'],
       ['What is your level of proficiency in English?', 'english'],
       ['Total IT Exp?', 'experience.years'],
+      ['Do you have 2+ years of hands-on software development experience?', 'experience.years_at_least'],
+      ['Do you have a valid driver\'s license?', 'drivers_license'],
     ];
     const fails = expect.filter((e) => { const a = ruled(e[0]); return !a || a.k !== e[1]; }).map((e) => e[1]);
+    const ex = ruled('Have you previously worked with WNS?', 'WNS');
+    if (!ex || ex.k !== 'former_employee') fails.push('former_employee_by_name');
     if (band(['Rs600,000 - Rs800,000', 'Rs800,000 - Rs1,500,000'], moneyRange, 1000000) !== 1) fails.push('money_band');
     if (daysBand(15, ['Immediate', '1-2 weeks', '3-4 weeks']) !== 1) fails.push('days_band');
     if (band(['0-1', '1-2', '3+'], numRange, 1) !== 1) fails.push('num_band');

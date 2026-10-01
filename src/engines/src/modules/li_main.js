@@ -46,7 +46,8 @@ function li_main(X) {
     const rec = { id: String(id), r: res.result, t: pt.t, co: pt.co || cut(co, 40), a: aid() };
     if (res.need) rec.need = res.need.map((x) => cut(x, 120)).slice(0, 8);
     if (res.errs && res.errs.length) rec.errs = res.errs.map((x) => cut(x, 80));
-    if (res.qa && res.qa.length) rec.qa = res.qa.slice(0, 16).map((p) => [cut(p[0], 70), cut(p[1], 40)]);
+    // push() trims qa to what fits one answer (cut:1 says some were left out).
+    if (res.qa && res.qa.length) rec.qa = res.qa.slice(0, 16).map((p) => [cut(p[0], 60), cut(p[1], 40)]);
     if (res.rect) { rec.rect = res.rect; rec.iw = window.innerWidth; }
     if (res.e) rec.e = res.e;
     return ST.push(rec);

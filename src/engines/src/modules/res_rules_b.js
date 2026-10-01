@@ -33,6 +33,10 @@ function res_rules_b(X) {
     // Facts before the generic "do you have ..." tech rules, which would otherwise
     // answer "Do you have a valid passport?" with a blanket Yes.
     if (/passport/.test(s)) { const v = saved('passport', null); return val('passport', v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
+    // 1 Oct: "Do you have a valid driver's license?" got the blanket Yes.
+    if (/driv(er|ing)'?s? licen[cs]e/.test(s)) { const v = saved('drivers_license', null); return val('drivers_license', v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
+    m = s.match(/(own|have) (a |an |your own )?(vehicle|car|bike|motorcycle|two.?wheeler|four.?wheeler|laptop)\b/);
+    if (m) { const k = 'owns.' + m[3].replace(/\W/g, ''); const v = saved(k, null); return val(k, v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
     if (/certificat/.test(s)) return val('certifications', saved('certifications', null), { yn: has(KEYED.certifications) ? 'yes' : null });
     if (/bachelor|degree|graduat|b\.?tech|education/.test(s)) return val('education.has_degree', ME.degree ? 'Yes' : null, { yn: 'yes' });
     if (/relocat/.test(s)) return val('relocate', ME.relocate === false ? 'No' : 'Yes', { yn: ME.relocate === false ? 'no' : 'yes' });

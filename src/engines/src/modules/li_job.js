@@ -40,7 +40,13 @@ function li_job(X) {
       const f = fill();
       qa.push(...f.log);
       if (f.prot.length) return { result: 'PROTECTED', need: f.prot, trace, qa };
-      if (f.log.length) { const sv = $$('button').find((b) => /^save$/i.test(txt(b))); if (sv) { sv.click(); await sleep(2000); } }
+      // The modal's own Save (an edited section), never the job page's Save, which
+      // bookmarks the job (1 Oct: every job the engine filled landed in Saved jobs).
+      if (f.log.length) {
+        const box = modal();
+        const sv = box && $$('button', box).find((b) => /^save$/i.test(txt(b)) && !/\bjob\b|\bat\b/i.test(b.getAttribute('aria-label') || '') && !/jobs-save/.test(String(b.className || '')));
+        if (sv) { sv.click(); await sleep(2000); }
+      }
       if (f.typeahead) return { result: 'NEEDS_CLICK', need: [f.typeahead.need], rect: f.typeahead.rect, trace, qa };
       const labels = $$('button').map(txt);
       const nxt = labels.find((x) => /^submit application$/i.test(x)) || labels.find((x) => /^review$/i.test(x)) || labels.find((x) => /^next$/i.test(x)) || labels.find((x) => /^continue$/i.test(x));

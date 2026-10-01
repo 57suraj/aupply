@@ -24,6 +24,12 @@ const KEEP_VISIBLE =
   "quietly: call wait and say nothing in between, no screenshots. If a call times out the script is still running: use " +
   "__aupply.status(), which answers at once, and never reload, navigate or open another tab.";
 
+/** Seen 1 Oct: the Chrome extension cuts a JavaScript answer at 1000 characters, so the
+    engines answer in pieces (core's ANSWER_MAX) and say how many are left. */
+const MORE =
+  "A status or wait answer carries at most a few results; more:N means N more are waiting. Call __aupply.status() at once, " +
+  "again and again, until an answer has no more, and only then act on what you collected or wait again.";
+
 const LOAD_RULE =
   "Load the engine into this page with load_engine, never by hand. (1) Run the loaded_check block (the text block after this " +
   "JSON) in the page with your browser tool's JavaScript execution. It answers 'ok' when the engine is ready: go to the steps. " +
@@ -53,7 +59,7 @@ export async function envelope(
   const { steps, rules, code, ...rest } = body;
   const issued = await issueEngine(userId, engine, cfg);
   return new Reply(
-    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, KEEP_VISIBLE], load_rule: LOAD_RULE },
+    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, KEEP_VISIBLE, MORE], load_rule: LOAD_RULE },
     [codeBlock("loaded_check", issued.loadedCheck), ...(code ?? []).map((c) => codeBlock(c.name, c.code))]
   );
 }

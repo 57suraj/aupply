@@ -60,10 +60,10 @@ export function registerLinkedinDraft(server: McpServer): void {
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there) and keep this tab for every step below.`,
             "Load the engine (load_rule). It stays loaded while this page stays open.",
-            "Run __aupply.sweep(), then await __aupply.wait(35000) until an item with phase 'swept' arrives. Keep its ids and tracker.",
+            "Run __aupply.sweep(), then await __aupply.wait(35000) until a 'swept' item with done:1 arrives. The ids come in several 'swept' items before it: collect the ids of all of them, and keep the tracker of the done:1 item.",
             "Call check_applied with platform 'linkedin' and external_ids = those ids.",
-            "Run __aupply.prescreen({skip: <the ids in check_applied.known>}), then await __aupply.wait(35000) until phase 'screened'. If paused_until shows, the script is waiting out a rate limit: keep polling or work another platform meanwhile.",
-            "Call queue_jobs with platform 'linkedin', jobs = keep, skipped = drop, stop = stop (if present) and tracker = the tracker from the sweep.",
+            "Run __aupply.prescreen({skip: <the ids in check_applied.known>}), then await __aupply.wait(35000) until a 'screened' item with done:1 arrives. The items before it carry keep or drop lists: collect every keep entry and every drop entry as-is. If paused_until shows, the script is waiting out a rate limit: keep polling or work another platform meanwhile.",
+            "Call queue_jobs once with platform 'linkedin', jobs = all the keep entries, skipped = all the drop entries, stop = the done:1 item's stop (if present) and tracker = the tracker from the sweep.",
           ],
           rules: [
             "Stay on this page: a real navigation wipes the sweep. Never open a second tab while a script runs.",

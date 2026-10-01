@@ -250,6 +250,40 @@ for (const [name, e] of Object.entries(engines)) {
     if (!phone || phone.v !== "9876543210") fail(`${name}: a phone field got ${JSON.stringify(phone && phone.v)}, not the national number`);
     const withCode = X.R.A("Phone number with country code");
     if (!withCode || withCode.v !== "+91 98765 43210") fail(`${name}: a phone field asking for the country code got ${JSON.stringify(withCode && withCode.v)}`);
+    // Live run 1 Oct: three questions that got a blanket Yes. The stub user has 2 years.
+    const expectations = [
+      [["Do you have 3+ years of hands-on software development experience?"], "experience.years_at_least", "No"],
+      [["Do you have 2+ years of professional experience?"], "experience.years_at_least", "Yes"],
+      [["Do you have 3+ years of experience with React?"], "experience.tech", "2"],
+      [["Do you have a valid driver's license?"], "drivers_license", null],
+      [["Have you previously worked with WNS if not please put 0", "WNS"], "former_employee", "No"],
+      [["Are you comfortable working at the WNS office in Chennai?", "WNS"], "willing", "Yes"],
+    ];
+    for (const [args, k, v] of expectations) {
+      const a = X.R.A(...args);
+      if (!a || a.k !== k || a.v !== v) fail(`${name}: ${JSON.stringify(args)} answered ${JSON.stringify(a && { k: a.k, v: a.v })}, expected ${k} = ${v}`);
+    }
+  }
+
+  // No status answer may pass the Chrome extension's 1000-character cut (live run 1 Oct):
+  // big results are trimmed, and what does not fit waits for the next call (more).
+  {
+    const core = page.window.__ap.m.core({ CFG: { v: "t", h: "t" } });
+    const ST = core.makeStore("cap-check", page.window.localStorage);
+    const { status } = core.makeStatus({ v: "t", h: "t" }, ST);
+    ST.S.info = { tracker: { before: 410, after_10: 420 }, cur: "4472684694" };
+    ST.push({ id: "1", r: "SENT", qa: Array.from({ length: 16 }, (_, i) => ["How many years of work experience do you have with thing " + i, "Yes"]) });
+    for (const part of core.chunks(Array.from({ length: 66 }, (_, i) => String(4472000000 + i)), 600)) ST.push({ phase: "swept", ids: part });
+    let got = 0, calls = 0, out;
+    do {
+      const raw = status();
+      if (raw.length > 1000) fail(`${name}: a status answer is ${raw.length} characters (the browser tool cuts at 1000)`);
+      out = JSON.parse(raw);
+      got += out.new.length;
+      if (++calls > 20) fail(`${name}: status() never drained the results`);
+    } while (out.more);
+    if (got !== ST.all().length) fail(`${name}: status() handed out ${got} of ${ST.all().length} results`);
+    if (!ST.all()[0].cut) fail(`${name}: an oversized result was not marked cut`);
   }
 
   // wait(): answers at once when nothing runs, wakes on a result or when the run stops, and

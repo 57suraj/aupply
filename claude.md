@@ -215,6 +215,14 @@ everywhere:
   when the tab is hidden. Phone fields get the national number (`me.phoneNational`). No
   `\uXXXX` escapes in engine sources: copiers resolve them and the checksum fails (the
   build rejects one).
+- The Chrome extension cuts a JavaScript answer at 1000 characters: no engine answer may
+  pass 900 (`ANSWER_MAX` in `core`). Results that do not fit wait for the next
+  `status()` (`more:N`), big lists go out in chunks with a `done:1` summary, and the
+  build checks it. Never return a big object from the page in one answer.
+- The first live LinkedIn run (1 Oct: 4 sent, 2 stalled, 1 protected) found: decimal years
+  in LinkedIn's whole-number fields, the job page's Save button clicked (jobs bookmarked),
+  and three facts answered Yes by the technology rules (total-years thresholds, "worked
+  with <employer>", driver's license). All fixed; see docs/automation-tools.md.
 - Parts are at most 9KB and loaded by Claude, never the user. Never `eval` on LinkedIn
   (CSP, even on the tracker page after the first load); on Naukri, Wellfound and Indeed
   the engine caches itself in page storage and `loaded_check` re-loads it with no server
