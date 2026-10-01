@@ -54,7 +54,7 @@ const ENGINE_DEFS = {
 /* The only browser globals a module may use. Anything else is a missing declaration or
    import (a lib.dom global such as `status` would otherwise hide a forgotten import). */
 const BROWSER_GLOBALS = ["window", "document", "location", "history", "localStorage", "sessionStorage", "fetch", "URL", "setTimeout", "clearTimeout",
-  "MutationObserver", "Event", "KeyboardEvent", "MouseEvent", "PointerEvent", "PopStateEvent", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement"];
+  "MessageChannel", "MutationObserver", "Event", "KeyboardEvent", "MouseEvent", "PointerEvent", "PopStateEvent", "HTMLInputElement", "HTMLSelectElement", "HTMLTextAreaElement"];
 
 const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 10);
 const h31 = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };

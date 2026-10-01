@@ -65,9 +65,9 @@ export function registerLinkedinApply(server: McpServer): void {
             "Follow report_results' next (retries, questions for the user, handoffs, stops).",
           ],
           rules: [
-            "Do not navigate this tab or open another tab while the queue runs; background timers throttle.",
+            "Do not navigate this tab or open another tab while the queue runs.",
             "The runner stops itself at LinkedIn's daily limit and after a second rate limit. Do not restart it.",
-            "Phase 'stalled' means one job made no progress for 4 minutes (usually a hidden or frozen tab): report what you have, tell the user, and do not restart the runner. While status carries paused:'hidden' the runner is waiting for the tab to be shown: tell the user to bring the Chrome window to the front.",
+            "Phase 'stalled' means one job made no progress for 4 minutes: report what you have, tell the user, and do not restart the runner.",
             ...(args.keep_open
               ? ["Handoff: when the result is NEEDS_CLICK, click the suggestion under the field named in need (rect is in page pixels; scale by screenshot width / iw); for FOLLOW_STUCK untick Follow with a real click. Then run __aupply.resume('<id>') and poll."]
               : []),

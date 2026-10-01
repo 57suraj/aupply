@@ -37,7 +37,7 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.6.5";
+export const MCP_SERVER_VERSION = "0.6.6";
 
 /** Sent to the client at initialize. Claude Code cuts server instructions at 2048 characters
     (seen 30 Sep: step 2 of a 3.6KB text stopped mid-sentence, dropping the rate-limit rules),

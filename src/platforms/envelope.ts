@@ -22,8 +22,14 @@ const ONLY_THE_ENGINE =
 const KEEP_VISIBLE =
   "Keep this tab visible: if a status carries hid:1 the tab is hidden (another tab in front, or the Chrome window covered or " +
   "minimized) and Chrome slows its scripts, so bring the tab to the front and tell the user if the window is covered. If you " +
-  "can run shell commands (for example Claude Code on macOS), run: open -a \"Google Chrome\". Poll " +
-  "quietly: call wait and say nothing in between, no screenshots. If a call times out the script is still running: use " +
+  "can run shell commands (for example Claude Code on macOS), run: open -a \"Google Chrome\". ";
+/** The LinkedIn engines keep their pace in a hidden tab (core's sleep). Seen 1 Oct: told to
+    keep the tab visible, Claude asked the user to bring Chrome forward and the run sat paused. */
+const HIDDEN_OK =
+  "The engine keeps working while Chrome is behind other windows (hid:1 in a status is normal): never ask the user to bring " +
+  "Chrome forward. ";
+const POLL =
+  "Poll quietly: call wait and say nothing in between, no screenshots. If a call times out the script is still running: use " +
   "__aupply.status(), which answers at once, and never reload, navigate or open another tab.";
 
 /** Seen 1 Oct: the Chrome extension cuts a JavaScript answer at 1000 characters, so the
@@ -61,7 +67,7 @@ export async function envelope(
   const { steps, rules, code, ...rest } = body;
   const issued = await issueEngine(userId, engine, cfg);
   return new Reply(
-    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, KEEP_VISIBLE, MORE], load_rule: LOAD_RULE },
+    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, (engine.startsWith("linkedin") ? HIDDEN_OK : KEEP_VISIBLE) + POLL, MORE], load_rule: LOAD_RULE },
     [codeBlock("loaded_check", issued.loadedCheck), ...(code ?? []).map((c) => codeBlock(c.name, c.code))]
   );
 }

@@ -214,9 +214,12 @@ everywhere:
   Aupply does nothing with mail: no mail searches, no mail instructions.
 - Engine code is emitted readable on purpose (real names, one statement per line): Claude
   copies it by hand and mis-copies dense minified code. A part's checksum ignores line
-  edges. `wait` is event-driven (one timer, at most 35s), never a polling loop of sleeps,
-  and the LinkedIn runner waits for a visible tab before each job; status carries `hid:1`
-  when the tab is hidden. Phone fields get the national number (`me.phoneNational`). No
+  edges. `wait` is event-driven (one timer, at most 35s), never a polling loop of sleeps.
+  A hidden tab is normal (Chrome behind the Claude app): `sleep` starts each timer from a
+  message task so Chrome's heavy throttling never applies, and the LinkedIn runner never
+  waits for the tab to be shown (1 Oct: it sat paused until the user brought Chrome
+  forward). `hid:1` on a status or a LinkedIn result says the tab was hidden. Phone fields
+  get the national number (`me.phoneNational`). No
   `\uXXXX` escapes in engine sources: copiers resolve them and the checksum fails (the
   build rejects one).
 - The Chrome extension cuts a JavaScript answer at 1000 characters: no engine answer may

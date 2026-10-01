@@ -335,6 +335,7 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
       attempt_ids: [...seen, rec.a].filter(Boolean).slice(-10),
       fails: o.retryable ? fails + 1 : fails,
       ...(rec.need ? { need: rec.need } : {}),
+      ...(rec.hid ? { hid: 1 } : {}),
       ...(input.engine ? { engine: input.engine } : {}),
     } as Json;
     const status = o.status ?? (row?.status as string | undefined) ?? "discovered";

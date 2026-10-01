@@ -560,9 +560,18 @@ Rules every engine follows, from the browser tool's limits:
 - **`wait` is event-driven, at most 35s.** It answers at once when nothing runs, wakes on a
   result or when the run stops, and otherwise on one timer: a loop of one-second sleeps
   adds a throttled tab's delay to every tick (30 Sep: 10s waits answered, 20s and longer
-  timed out at the tool's 45s). A status carries `hid:1` when the tab is hidden, and the
-  LinkedIn runner waits for the tab to be shown before each job: Chrome throttles the
-  timers of a hidden tab and LinkedIn's modal stalls in it.
+  timed out at the tool's 45s).
+- **A hidden tab is normal.** The user chats with Claude in another app, which covers the
+  Chrome window, and Chrome marks a covered window's tabs hidden. After 5 minutes hidden,
+  Chrome fires a timer set from inside another timer's callback (five deep or more) at most
+  about once a minute, which stretches a run of sleeps past the 4 minute stall limit (the
+  likely cause of the 30 Sep job that sat "in progress"). `core`'s `sleep` starts each timer
+  from a message task, which keeps every timer shallow, so the run keeps its pace hidden and
+  a sleep is never shorter than asked. The LinkedIn runner never waits for the tab to be
+  shown (1 Oct: a runner that did sat paused until the user brought Chrome forward), and
+  the LinkedIn tools tell Claude not to ask. A status carries `hid:1` while the tab is
+  hidden, and a LinkedIn result carries it when its job ran hidden (stored in the
+  application's metadata), so a failure seen only in hidden tabs shows in the record.
 - **No answer longer than 900 characters.** The Chrome extension cuts a JavaScript answer
   at exactly 1000 characters (1 Oct: the sweep's 66 ids and the prescreen's drops came back
   cut off, so they could not be passed on as-is). `core` caps every status answer

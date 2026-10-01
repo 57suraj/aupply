@@ -4,7 +4,23 @@
    turns each into one small part that Claude pastes on its own. */
 function core(X) {
   'use strict';
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /* Chrome throttles a page hidden for 5 minutes (its window covered, for example by the
+     Claude app): a timer set from inside another timer's callback, five deep or more, fires
+     at most about once a minute, so a run of sleeps stretches a 2 minute job past the stall
+     limit (30 Sep). Each sleep starts its timer from a message task instead, which keeps
+     every timer shallow: the run keeps its pace in a hidden tab, and a sleep is never
+     shorter than asked. The channel is made on the first sleep: the server runs core too
+     (resolve_answers), where there is no MessageChannel. */
+  let hop = null;
+  const due = [];
+  const sleep = (ms) => new Promise((r) => {
+    if (!hop) {
+      hop = new MessageChannel();
+      hop.port1.onmessage = () => { const next = due.shift(); setTimeout(next[1], next[0]); };
+    }
+    due.push([ms, r]);
+    hop.port2.postMessage(0);
+  });
   const jitter = (a, b) => a + Math.floor(Math.random() * (b - a));
   const txt = (e) => ((e && (e.innerText || e.textContent)) || '').replace(/\s+/g, ' ').trim();
   const clean = (s) => (s ? String(s)

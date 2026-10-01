@@ -5,29 +5,27 @@ function li_main(X) {
   const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont } = X;
   let pageWait = P.page;
 
-  /* A hidden tab (another tab in front, the window covered or minimized) gets its timers
-     throttled to a crawl and LinkedIn's modal stalls in it: live run 30 Sep, a job sat
-     "in progress" for minutes. The runner waits for the tab to be shown before each job;
-     status() carries hid:1 meanwhile, so Claude can tell the user. */
-  const shown = () => new Promise((resolve) => {
-    if (!document.hidden) { resolve(); return; }
-    S.info.paused = 'hidden';
-    const on = () => {
-      if (document.hidden) return;
-      document.removeEventListener('visibilitychange', on);
-      delete S.info.paused;
-      resolve();
-    };
-    document.addEventListener('visibilitychange', on);
-  });
+  /* The run carries on in a hidden tab: the Chrome window behind the Claude app is the usual
+     case, and core's sleep keeps its pace there. (1 Oct: a runner that waited for the tab to
+     be shown sat paused until the user brought Chrome forward.) A result carries hid:1 when
+     the tab was hidden at some point during that job, so a failure seen only in hidden tabs
+     shows in the record. */
+  let hidJob = false;
+  let watching = false;
+  const watchHidden = () => {
+    if (watching) return;
+    watching = true;
+    document.addEventListener('visibilitychange', () => { if (document.hidden) hidJob = true; });
+  };
 
   const nav = async (path) => {
     history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     await sleep(pageWait);
   };
-  // A job that makes no progress for P.jobMax ends the run as "stalled" (a hidden or frozen
-  // tab): it is recorded, and the next job never starts while the stuck one may still run.
+  // A job that makes no progress for P.jobMax ends the run as "stalled" (a frozen tab, or a
+  // form that never moves): it is recorded, and the next job never starts while the stuck
+  // one may still run.
   const withLimit = (p, ms) => new Promise((resolve, reject) => {
     const t = setTimeout(() => resolve({ result: 'ERR', e: 'job_timeout' }), ms);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
@@ -50,6 +48,7 @@ function li_main(X) {
     if (res.qa && res.qa.length) rec.qa = res.qa.slice(0, 16).map((p) => [cut(p[0], 60), cut(p[1], 40)]);
     if (res.rect) { rec.rect = res.rect; rec.iw = window.innerWidth; }
     if (res.e) rec.e = res.e;
+    if (hidJob) rec.hid = 1;
     return ST.push(rec);
   };
 
@@ -65,10 +64,10 @@ function li_main(X) {
       let rl = 0, n = 0;
       try {
         S.info.tracker.before = await readTracker();
+        watchHidden();
         for (const item of q) {
           if (S.stop) break;
-          await shown();
-          if (S.stop) break;
+          hidJob = document.hidden;
           const id = String(item[0]), co = String(item[1] || '');
           await nav('/jobs/view/' + id + '/');
           if (rateLimited()) {
