@@ -133,7 +133,7 @@ Domain semantics:
   `stage` is what the employer did: a trigger derives it from `application_events`,
   so never write it directly; insert an event.
 - `application_events`: outcomes and notes. `action_required and not action_done`
-  is the "waiting on the human" queue. `(source, external_ref)` dedups imports such as Gmail ids.
+  is the "waiting on the human" queue. `(source, external_ref)` dedups imports from any source.
 - `answers`: reusable answer library. `key` names canonical facts (`notice_period`,
   `sponsorship.us`); null for ad-hoc answers. Claude's saves are `provisional` unless
   the user stated them, and a confirmed answer is never overwritten by a provisional one.
@@ -204,6 +204,10 @@ everywhere:
   a live test. The server answers a call to an unknown tool with a message saying so
   (`staleToolCall` in `src/mcp/server.ts`), and the instructions forbid clicking through
   job boards by hand and screenshot verification.
+- Server instructions (`INSTRUCTIONS` in `src/mcp/server.ts`) stay under 2000 characters:
+  Claude Code cuts them at 2048 (30 Sep: a 3.6KB text stopped mid-sentence and lost the rate-limit
+  rules), so the rules that matter come first and details travel in tool responses. e2e checks it.
+  Aupply does nothing with mail: no mail searches, no mail instructions.
 - Engine code is emitted readable on purpose (real names, one statement per line): Claude
   copies it by hand and mis-copies dense minified code. A part's checksum ignores line
   edges. `wait` is event-driven (one timer, at most 35s), never a polling loop of sleeps,

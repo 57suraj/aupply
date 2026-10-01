@@ -1,6 +1,6 @@
 /**
  * Sessions: start_session opens a run and returns everything Claude needs before
- * applying (what waits on the user, what to reconcile, the inbox searches, each
+ * applying (what waits on the user, what to reconcile, each
  * platform's state); end_session closes it with counts computed from the database,
  * not from Claude's tally, plus the provisional answers used and a 30-day funnel.
  */
@@ -19,41 +19,8 @@ type Meta = Record<string, any>;
 
 const QUEUE_HOURS: Record<ScriptedPlatform, number> = { linkedin: 24, naukri: 72, wellfound: 168, indeed: 72 };
 
-/** Mail searches for a Gmail-style connector, each with what a hit means. */
-function inboxQueries(platforms: ScriptedPlatform[]) {
-  const q = [
-    {
-      q: 'newer_than:21d (subject:(application OR interview OR shortlisted OR "not selected" OR regret OR "moving forward" OR assessment OR "next steps") OR from:(greenhouse.io OR lever.co OR ashbyhq.com OR smartrecruiters.com OR myworkdayjobs.com OR zohorecruit.com)) -subject:(alert OR "jobs for you")',
-      means: "Employer replies. Record each with record_outcome (source gmail, external_ref = the message id, so re-runs dedup); set action_required when the user must act.",
-    },
-    {
-      q: 'newer_than:7d (from:(coderbyte.com OR hackerrank.com OR hackerearth.com OR codility.com OR testgorilla.com OR mettl.com OR doselect.com OR karat.io) OR subject:(assessment OR "coding challenge" OR "take-home"))',
-      means: "Assessment invites: record_outcome type assessment, action_required, and action_due_at (an undated invite: assume 3 to 7 days). Tell the user today.",
-    },
-  ];
-  if (platforms.includes("linkedin")) {
-    q.push({
-      q: 'newer_than:14d from:jobs-noreply@linkedin.com subject:"problem with your"',
-      means: "A LinkedIn application that never reached the employer: apply again with linkedin_apply for that job.",
-    });
-  }
-  if (platforms.includes("indeed")) {
-    q.push({
-      q: "newer_than:14d from:indeedapply@indeed.com",
-      means: "Indeed submitted ('Indeed Application: <role>', body 'Your application has been submitted'; the snippet can mislead). Mark the parked job applied with log_application.",
-    });
-  }
-  if (platforms.includes("naukri")) {
-    q.push({
-      q: 'newer_than:7d from:reviews@ambitionbox.com "applied for a job"',
-      means: "Applications the user made on Naukri themselves: record them with log_application (status applied) so drafts skip them.",
-    });
-  }
-  return q;
-}
-
 const HOW_TO_CONFIRM: Record<string, string> = {
-  indeed: "Search mail from:indeedapply@indeed.com; a matching 'Indeed Application: <role>' mail means submitted (log_application status applied). The subject names the role, not the company: if two jobs share a title, ask the user.",
+  indeed: "The user submits the CAPTCHA themselves: ask which of these they sent, then log_application status applied for those.",
   linkedin: "Re-run linkedin_apply with these ids: jobs that landed report ALREADY_APPLIED and are marked applied; the rest apply again.",
   wellfound: "Re-run wellfound_apply with these jobs: landed ones report ALREADY.",
   naukri: "Re-run naukri_apply with these jobs: landed ones report ALREADY.",
@@ -133,7 +100,6 @@ export async function startSession(userId: string, input: { client?: string; pla
       ? ["Profile incomplete (setup_needed): read get_resume, propose values for those fields, ask the user about the rest, and save what they confirm with update_profile before drafting."]
       : []),
     ...(pending.length ? ["Raise pending_actions with the user first: anything waiting on them outranks new applications."] : []),
-    "If you have a mail tool, run inbox_queries and record what you find.",
     ...(groups.size ? ["Reconcile parked and unconfirmed jobs as each group's `how` says."] : []),
     ...(state.naukri?.refresh_due ? ["Run naukri_refresh_profile once today."] : []),
     "Then per platform: <platform>_draft, queue_jobs, <platform>_apply with from_queue, report_results. End with end_session.",
@@ -147,7 +113,6 @@ export async function startSession(userId: string, input: { client?: string; pla
     pending_actions: pending,
     platforms: state,
     reconcile: [...groups.values()].map((g) => ({ ...g, how: HOW_TO_CONFIRM[g.platform] ?? "Ask the user whether it went through." })),
-    inbox_queries: inboxQueries(platforms),
     provisional_answers: unwrap(provisional).map((a) => [a.key ?? a.question.slice(0, 100), a.answer.slice(0, 120)]),
     next,
   };

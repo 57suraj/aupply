@@ -2,8 +2,7 @@
  * Tool: start_session
  *
  * Opens a run and returns, in one call, everything to handle before applying: what
- * waits on the user, parked and unconfirmed jobs to reconcile, the inbox searches, and
- * each platform's state (queue, LinkedIn quota, Naukri refresh, backoffs).
+ * waits on the user, parked and unconfirmed jobs to reconcile, and each platform's state (queue, LinkedIn quota, Naukri refresh, backoffs).
  */
 
 import { z } from "zod";
@@ -19,7 +18,7 @@ export function registerStartSession(server: McpServer): void {
       description:
         "Call first in every job-search session. Opens a run and returns: pending_actions (things waiting on the " +
         "user; raise them before applying to anything new), reconcile (parked and unconfirmed jobs and how to confirm " +
-        "each), inbox_queries (mail searches and what a hit means), each platform's state (queued jobs, LinkedIn " +
+        "each), each platform's state (queued jobs, LinkedIn " +
         "quota left, Naukri refresh due, rate-limit backoffs), provisional answers to confirm with the user, and a " +
         "warning if another session looks live.",
       inputSchema: {

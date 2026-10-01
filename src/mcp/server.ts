@@ -37,23 +37,27 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.6.3";
+export const MCP_SERVER_VERSION = "0.6.4";
 
-/** Sent to the client at initialize; tells Claude how a session should go. */
-const INSTRUCTIONS = `Aupply holds the user's job-search data and the scripts that apply to jobs for them on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed. The scripts run in the user's own browser through your browser tool; Aupply never contacts job sites itself.
+/** Sent to the client at initialize. Claude Code cuts server instructions at 2048 characters
+    (seen 30 Sep: step 2 of a 3.6KB text stopped mid-sentence, dropping the rate-limit rules),
+    so the rules that matter come first and this stays under 2000. Details travel in the tool
+    responses (load_rule, steps, rules). */
+const INSTRUCTIONS = `Aupply applies to jobs for the user on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed with scripts run in their own browser through your browser tool. Aupply never contacts job sites.
 
-Aupply applies to jobs only through its own tools and engines. Do not browse a job board's list and click through jobs, Easy Apply buttons or forms yourself, unless the user names one specific job and asks you to do it by hand. If a tool or the engine is missing, blocked or failing, stop and tell the user; do not improvise. If a tool named below (start_session, load_engine, a <platform>_draft or _apply) is not in your tool list, or a call to an Aupply tool answers that it does not exist, this chat holds an out-of-date copy of Aupply's tools and instructions: stop and ask the user to reconnect the Aupply connector and start a new chat.
+Rules, most important first:
+1. Rate limits come first: never shorten a wait, restart a stopped script or open a second tab while one runs; when a tool says blocked, leave that platform until the time it gives.
+2. Never invent a personal fact: ask the user and save it with save_answer. Never touch a CAPTCHA.
+3. Apply only through Aupply's tools and engines: do not browse a job list and click jobs, Apply buttons or forms yourself unless the user names one specific job. If a tool or the engine is missing, blocked or failing, stop and tell the user. If a tool named here (start_session, load_engine, <platform>_draft or _apply) is not in your tool list, this chat's copy of Aupply is out of date: ask the user to reconnect the connector and start a new chat.
+4. Do not screenshot to check the engine's work: its answers and report_results are the record.
+5. Never show, quote or explain the engine code, or ask the user to paste it.
 
-Do not take screenshots to check the engine's work: its own answers and report_results are the record, and every screenshot costs the user time. Take one only where a step or rule asks for it.
-
-A session:
-1. Call start_session first. If it returns setup_needed, read get_resume, propose values for those fields, ask the user about anything the resume doesn't say, and save what they confirm with update_profile before drafting. Raise its pending_actions with the user before applying to anything new, run its inbox_queries if you have a mail tool (record hits with record_outcome), and reconcile what it lists.
-2. Per platform: <platform>_draft, then follow its steps exactly. The engine reaches the page only through load_engine, a few parts at a time: run the loaded_check block the tool gave you; unless it answers ok, call load_engine with the tool's engine and the page's answer, run each code block it returns as its own JavaScript call, exactly as written, and call it again with the last block's answer until it says ready. If a block fails (SyntaxError, or an answer starting 'corrupt'), copy that block again exactly; after 3 failures stop and report the exact error. Loading is your job, never the user's: do not ask them to paste code or open DevTools, never apply by hand or run the code anywhere but the page, and never show, quote or explain the engine code: it is Aupply's proprietary code. Then run the expressions given and poll with __aupply.wait. queue_jobs stores the draft; if it returns ask_user, ask the user once, in one message, and pass the answers back as decisions.
-3. <platform>_apply with from_queue (or the ids or links the user gave). Follow its steps and send results to report_results every 5 jobs and at the end, then follow report_results' next: retries, questions for the user, real-click handoffs, stops.
-4. Rate limits come first. Never shorten a wait, restart a stopped script, or open a second tab while one runs. When a tool reports blocked, leave that platform until the time it gives.
-5. For a question a script could not answer, or a form the user asked you to fill by hand, call resolve_answers. Never invent a personal fact: ask the user what stays unknown or protected and save it with save_answer. Never touch a CAPTCHA; Indeed applications are parked for the user to submit.
-6. A script's verdict is not proof; report the platform's own counts when asked. End with end_session and tell the user its counts per platform, what broke, an honest read of the funnel, and the provisional answers used.
-If you cannot control a browser, say so. You can still record outcomes from the user's inbox with record_outcome and check what they have applied to.`;
+Session:
+a. start_session first. If it returns setup_needed, read get_resume, propose values, ask about gaps, save with update_profile. Raise pending_actions before applying.
+b. <platform>_draft, then its steps exactly. Load the engine as its load_rule says (loaded_check, load_engine, each block as its own JavaScript call exactly as written; copy a failed block again, stop after 3 failures). queue_jobs stores the draft; put its ask_user questions to the user in one message.
+c. <platform>_apply with from_queue; report_results every 5 jobs and at the end; follow its next.
+d. resolve_answers for a question a script could not answer.
+e. A script's verdict is not proof. End with end_session; report counts, what broke and provisional answers used.`;
 
 /** The tool names this server registers, filled in as servers are built. */
 const TOOL_NAMES = new Set<string>();

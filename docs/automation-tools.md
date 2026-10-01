@@ -253,9 +253,8 @@ consequential. Draft tools only return a script that reads (storing the queue is
 **`start_session`**
 - Input: `client?`, `platforms?` (default `preferences.platforms`).
 - Returns: `run_id`; `pending_actions` (waiting on the user, soonest deadline first);
-  `reconcile` (parked and unconfirmed jobs and how to confirm each: Indeed by mail
-  from `indeedapply@indeed.com`, LinkedIn unconfirmed by the tracker); `inbox_queries`
-  (mail searches, each with what a hit means); per-platform state (LinkedIn
+  `reconcile` (parked and unconfirmed jobs and how to confirm each: Indeed by asking the
+  user which they submitted, LinkedIn unconfirmed by the tracker); per-platform state (LinkedIn
   `applied_today` and `cap_left`, Naukri `refresh_due` and last chip state, Indeed
   `parked`, and `blocked_until` for any platform in a rate-limit backoff);
   `another_run_live` when a run started under two hours ago and never ended;
@@ -461,7 +460,7 @@ consequential. Draft tools only return a script that reads (storing the queue is
   `READY_FOR_CAPTCHA`.
   Status `parked`. Hand the user one list at the end, never one tab at a time, and never
   close a parked tab. `NEEDS_DROPDOWN` is a real-click handoff.
-- Confirmation arrives by mail; `start_session` lists parked Indeed jobs with the query.
+- The user submits the CAPTCHA themselves; `start_session` lists the parked Indeed jobs and Claude asks which they sent.
 
 ---
 
@@ -587,7 +586,7 @@ Rules every engine follows, from the browser tool's limits:
 | `UNCONFIRMED`, `UNCONF` | LinkedIn, Wellfound | `unconfirmed` | tracker or job page reconciles |
 | `ALREADY_APPLIED`, `ALREADY` | all | `applied` (noted as outside Aupply if new) | continue |
 | `NEEDS_INPUT` | LinkedIn, Wellfound, Indeed | unchanged; questions logged | `resolve_answers`, ask the user, re-run with `answers` |
-| `READY_FOR_CAPTCHA` | Indeed | `parked` | tell the user; reconcile by mail |
+| `READY_FOR_CAPTCHA` | Indeed | `parked` | tell the user; ask which they sent |
 | `CLOSED` | LinkedIn | `closed` | never retry |
 | `EXTERNAL`, `NO_INDEED_APPLY` | Naukri, Indeed | `lead` | log only |
 | `NO_EASY_APPLY` | LinkedIn | `skipped` | LinkedIn is Easy Apply only; no lead is logged |
@@ -775,8 +774,8 @@ src/mcp/tools/                 one file per tool, as today (load_engine is how c
 - **Applying on external ATS sites.** Retired in applix; they arrive as leads. When the
   user asks for a specific one, Claude can fill it by hand with `resolve_answers` and
   record it with `log_application`.
-- **Reading mail.** Aupply cannot. `start_session` hands Claude the queries, and
-  `record_outcome` dedups on the message id.
+- **Mail.** Out of scope (1 Oct decision): Aupply does not read mail and `start_session`
+  hands out no mail searches. `record_outcome` stays for outcomes the user tells Claude.
 - **Cold outreach.** Not in the scripts. The evidence in the amendments says guessed
   `hello@` addresses mostly bounce and only named people ever replied; it needs its own
   design (named contacts only, a sent-to list, bounce reconciliation).
@@ -843,7 +842,6 @@ out-of-date copy of the tools: ask the user to reconnect the connector and start
 chat. Do not take screenshots to check the engine's work; its answers are the record.
 
 1. Call start_session. Raise anything in pending_actions before applying to anything new.
-   If you have a mail tool, run inbox_queries and record what you find with record_outcome.
 2. For each platform: <platform>_draft, then follow its steps (on LinkedIn: sweep,
    check_applied, prescreen), then queue_jobs. The engine reaches the page only through
    load_engine, a few parts at a time: run the loaded_check block the tool gave you;
@@ -864,8 +862,8 @@ chat. Do not take screenshots to check the engine's work; its answers are the re
 6. Call end_session, then tell the user: counts per platform (from end_session), what
    broke, an honest read of the funnel, and any provisional answers used.
 
-If you cannot control a browser, say so. You can still reconcile the inbox, screen links
-the user pastes, and prepare answers.
+If you cannot control a browser, say so. You can still screen links the user pastes and
+prepare answers.
 ```
 
 ## 15. Decisions log

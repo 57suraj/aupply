@@ -327,6 +327,7 @@ async function main() {
   const init = await mcp(accessA, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   expect("initialize with token", init.status === 200 && init.body?.result?.serverInfo?.name === "Aupply", init.body);
   expect("server instructions sent", (init.body?.result?.instructions || "").includes("start_session"), init.body?.result);
+  expect("server instructions fit what Claude Code keeps (2048 characters)", (init.body?.result?.instructions || "").length <= 2000, (init.body?.result?.instructions || "").length);
   const list = await mcp(accessA, "tools/list", {});
   const toolNames = (list.body?.result?.tools || []).map((t) => t.name).sort();
   expect("27 tools listed", toolNames.length === 27 && toolNames.includes("load_engine"), toolNames);
@@ -343,7 +344,7 @@ async function main() {
   expect("get_resume with none -> tool error", r.isError && /not found/i.test(String(r.data)), r.data);
 
   const run = await tool(accessA, "start_session", { client: "e2e" });
-  expect("start_session opens a run with platform state and inbox queries", !run.isError && run.data.run_id && run.data.platforms?.linkedin?.cap_left === 35 && run.data.inbox_queries?.length >= 2, run.data);
+  expect("start_session opens a run with platform state and no mail searches", !run.isError && run.data.run_id && run.data.platforms?.linkedin?.cap_left === 35 && run.data.inbox_queries === undefined, run.data);
   const runId = run.data?.run_id;
   expect("start_session flags setup_needed on an empty profile", run.data?.setup_needed?.some((g) => g.startsWith("preferences.desired_roles")) && run.data.next?.[0]?.includes("update_profile"), run.data?.setup_needed);
 
@@ -422,10 +423,10 @@ async function main() {
   const { data: usedAnswer } = await admin.from("answers").select("times_used").eq("id", answerId).single();
   expect("reused answer counted", !r.isError && usedAnswer?.times_used === 1, usedAnswer);
 
-  r = await tool(accessA, "record_outcome", { company_name: "acme corp", type: "interview", action_required: true, source: "gmail", external_ref: "msg-1", subject: "Interview invite" });
+  r = await tool(accessA, "record_outcome", { company_name: "acme corp", type: "interview", action_required: true, source: "import", external_ref: "msg-1", subject: "Interview invite" });
   expect("record_outcome matched by company", !r.isError && r.data.matched_by === "company_name" && r.data.application?.stage === "interview", r.data);
   const eventId = r.data?.event?.id;
-  r = await tool(accessA, "record_outcome", { company_name: "acme corp", type: "interview", source: "gmail", external_ref: "msg-1" });
+  r = await tool(accessA, "record_outcome", { company_name: "acme corp", type: "interview", source: "import", external_ref: "msg-1" });
   expect("record_outcome dedups by external_ref", !r.isError && r.data.duplicate === true && r.data.event.id === eventId, r.data);
   r = await tool(accessA, "record_outcome", { company_name: "Unknown Inc", type: "rejected" });
   expect("record_outcome without a match", !r.isError && r.data.event.application_id === undefined && r.data.matched_by === undefined, r.data);

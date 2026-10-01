@@ -245,7 +245,7 @@ export async function recordEvent(userId: string, input: z.infer<typeof EventInp
     user_id: userId,
   };
 
-  // Imports (e.g. Gmail) carry an external_ref: re-recording the same one is a no-op.
+  // Imports from another source carry an external_ref: re-recording the same one is a no-op.
   let event;
   let duplicate = false;
   if (row.external_ref) {

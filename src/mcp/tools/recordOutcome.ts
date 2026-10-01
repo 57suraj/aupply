@@ -22,8 +22,8 @@ export function registerRecordOutcome(server: McpServer): void {
         "Identify the application by application_id, or platform + external_id, or company_name " +
         "(most recent application at that company). Set action_required when the user must do " +
         "something (reply, take a test, schedule), with action_due_at if there is a deadline. When " +
-        "importing from email, pass source 'gmail' and the message id as external_ref so the same " +
-        "email is never recorded twice. The application's stage updates automatically.",
+        "importing from another source, pass its name as source and the item's id as external_ref so " +
+        "the same item is never recorded twice. The application's stage updates automatically.",
       inputSchema: EventInput.shape,
       annotations: WRITE,
     },
