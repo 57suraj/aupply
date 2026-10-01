@@ -73,6 +73,24 @@ export async function startSession(userId: string, input: { client?: string; pla
       .eq("metadata->>needs_decision", "false")
       .gte("created_at", new Date(Date.now() - QUEUE_HOURS[p] * 3600_000).toISOString());
     const s: Meta = { queued: count ?? 0 };
+    // Drafted jobs that want a technology the user does not list wait for their decision.
+    // Only the queue_jobs call that drafted them asks, so a chat that ended before the
+    // user answered left them stuck (1 Oct: 14 LinkedIn jobs nobody was asked about again).
+    const undecided = unwrap(
+      await db()
+        .from("applications")
+        .select("external_id, job_title, company_name, metadata")
+        .eq("user_id", userId)
+        .eq("platform", p)
+        .eq("status", "discovered")
+        .eq("metadata->>needs_decision", "true")
+        .gte("created_at", new Date(Date.now() - QUEUE_HOURS[p] * 3600_000).toISOString())
+        .order("match_score", { ascending: false, nullsFirst: false })
+        .limit(30)
+    );
+    if (undecided.length) {
+      s.ask_user = undecided.map((r) => ({ id: r.external_id, title: r.job_title.slice(0, 60), company: r.company_name.slice(0, 40), wants: (r.metadata as Meta)?.sm ?? [] }));
+    }
     const block = unwrap(blocks).find((b) => b.platform === p || b.platform === `${p}_guest`);
     if (block) s.blocked = { scope: block.platform, until: block.blocked_until, reason: block.block_reason };
     if (p === "linkedin") {
@@ -101,6 +119,9 @@ export async function startSession(userId: string, input: { client?: string; pla
       : []),
     ...(pending.length ? ["Raise pending_actions with the user first: anything waiting on them outranks new applications."] : []),
     ...(groups.size ? ["Reconcile parked and unconfirmed jobs as each group's `how` says."] : []),
+    ...(Object.values(state).some((s) => s.ask_user)
+      ? ["Some drafted jobs want a technology the user does not list (platforms.<platform>.ask_user): ask the user in one message whether to apply to each, then pass their answers to queue_jobs (platform, decisions) so the kept ones join the queue."]
+      : []),
     ...(state.naukri?.refresh_due ? ["Run naukri_refresh_profile once today."] : []),
     "Then per platform: <platform>_draft, queue_jobs, <platform>_apply with from_queue, report_results. End with end_session.",
   ];

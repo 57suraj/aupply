@@ -606,6 +606,8 @@ async function main() {
     skipped: [{ id: "4471000003", r: "DROP_YEARS", t: "Senior Dev", co: "Sco" }],
   });
   expect("queue_jobs queues, asks, skips", !r.isError && r.data.counts?.queued === 1 && r.data.ask_user?.[0]?.id === "4471000002" && r.data.counts.skipped === 1, r.data);
+  r = await tool(accessA, "start_session", { client: "e2e", platforms: ["linkedin"] });
+  expect("start_session raises a stack decision left unanswered", !r.isError && r.data.platforms?.linkedin?.ask_user?.[0]?.id === "4471000002" && r.data.platforms.linkedin.ask_user[0].wants?.[0] === "Java" && r.data.next.some((n) => n.includes("ask_user")), r.data?.platforms);
   r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471000001", "urn:li:jobPosting:4471000003", "4471000009"] });
   expect("check_applied sees queued and skipped jobs", !r.isError && r.data.new?.length === 1 && r.data.known.length === 2, r.data);
   r = await tool(accessA, "linkedin_apply", { from_queue: true });
