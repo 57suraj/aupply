@@ -9,6 +9,7 @@ import { getSupabaseClient } from "../db/supabase.js";
 import { unwrap } from "../lib/errors.js";
 import { getPreferences, getProfile, listEducations, listExperiences } from "../services/candidate.js";
 import type { ScriptedPlatform } from "./ids.js";
+import type { PostedWithin } from "../domain/schemas.js";
 import {
   JUNIOR_TITLE_TERMS,
   LINKEDIN_AGGREGATORS,
@@ -173,7 +174,22 @@ const slugTerm = (t: string) =>
   ({ "c#": "c-sharp|csharp", "c++": "cpp|c-plus-plus", ".net": "net|dotnet|dot-net" })[t.toLowerCase().trim()] ??
   t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-export function screening(d: UserData, platform: ScriptedPlatform) {
+/** The windows each posted_within choice sweeps, freshest first, and the result pages per
+    keyword in each window (a week reaches past the newest postings the 24h pages hold). */
+const LINKEDIN_WINDOWS: Record<PostedWithin, PostedWithin[]> = { "1h": ["1h"], "24h": ["1h", "24h"], "1w": ["1h", "24h", "1w"] };
+const LINKEDIN_PAGES: Record<PostedWithin, number> = { "1h": 3, "24h": 3, "1w": 5 };
+
+/** The user's standing preference when a session names no window. */
+export const defaultWithin = (maxAgeHours: number | null | undefined): PostedWithin =>
+  (maxAgeHours ?? 24) <= 1 ? "1h" : (maxAgeHours ?? 24) <= 24 ? "24h" : "1w";
+
+/** The searches a LinkedIn draft runs, decided here and run as given by the engine:
+    [keyword, window, pages], every keyword in the freshest window first. */
+export function linkedinSearches(keywords: string[], within: PostedWithin): [string, PostedWithin, number][] {
+  return LINKEDIN_WINDOWS[within].flatMap((w) => keywords.map((k): [string, PostedWithin, number] => [k, w, LINKEDIN_PAGES[w]]));
+}
+
+export function screening(d: UserData, platform: ScriptedPlatform, li: { within?: PostedWithin; keywords?: string[] } = {}) {
   const { prefs, profile } = d;
   const rules = rulesOf(prefs);
   const seniority = prefs.seniority_levels.join(" ").toLowerCase();
@@ -189,12 +205,10 @@ export function screening(d: UserData, platform: ScriptedPlatform) {
     minPay: perYear(prefs.min_salary, prefs.salary_period),
   };
   if (platform === "linkedin") {
-    const roles = prefs.desired_roles.length ? prefs.desired_roles : [profile.current_title].filter(Boolean) as string[];
-    const maxAge = prefs.max_posting_age_hours ?? 24;
+    const roles = li.keywords?.length ? li.keywords : prefs.desired_roles.length ? prefs.desired_roles : [profile.current_title].filter(Boolean) as string[];
     return {
       ...base,
-      keywords: roles.slice(0, 12).map((r) => [r, 3] as [string, number]),
-      windows: maxAge <= 1 ? ["r3600"] : ["r3600", "r86400"],
+      searches: linkedinSearches(roles.slice(0, 12), li.within ?? defaultWithin(prefs.max_posting_age_hours)),
       location: profile.location_country ?? "India",
       geoId: LINKEDIN_GEO_IDS[(profile.location_country ?? "india").toLowerCase()] ?? null,
       agg: compileTerms(LINKEDIN_AGGREGATORS),
@@ -227,6 +241,8 @@ export function engineConfig(
     known?: string[];
     coverNote?: string | null;
     screen?: Record<string, unknown>;
+    /** LinkedIn draft: how recent the jobs are and the keywords to search (default the user's roles). */
+    linkedin?: { within?: PostedWithin; keywords?: string[] };
     /** Only one half of the config, for an engine that needs only that half (the LinkedIn
         draft screens, the LinkedIn apply answers); default both. */
     only?: "answers" | "screen";
@@ -235,7 +251,7 @@ export function engineConfig(
   const cfg = {
     u: d.userId.slice(0, 8),
     ...(extra.only === "screen" ? {} : answerPack(d, extra.overrides)),
-    ...(extra.only === "answers" ? {} : { screen: { ...screening(d, platform), ...(extra.screen ?? {}) } }),
+    ...(extra.only === "answers" ? {} : { screen: { ...screening(d, platform, extra.linkedin), ...(extra.screen ?? {}) } }),
     ...(extra.known ? { known: extra.known } : {}),
     ...(extra.coverNote ? { coverNote: extra.coverNote } : {}),
   };

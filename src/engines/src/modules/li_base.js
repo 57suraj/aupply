@@ -9,7 +9,7 @@ function li_base(X) {
   const { CFG, makeStore, makeStatus } = X;
   /* Rate limits. Fixed here on purpose: no tool input can shorten them
      (docs/automation-tools.md, "Rate limits"). */
-  const P = { page: 6000, pageSlow: 8000, gapMin: 15000, gapMax: 30000, rlPause: 300000, search: 1000, jd: 1500, jdPause: 600000, jobMax: 240000 };
+  const P = { page: 6000, pageSlow: 8000, gapMin: 15000, gapMax: 30000, rlPause: 300000, search: 1000, jd: 1500, jdPause: 600000, jobMax: 240000, card: 15000, modal: 15000 };
   const ST = makeStore('__aupply_li_' + (CFG.u || 'x'), localStorage);
   const S = ST.S;
   S.running = false;

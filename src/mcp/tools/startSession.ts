@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { POSTED_WITHIN } from "../../domain/schemas.js";
 import { startSession } from "../../services/sessions.js";
 import { WRITE, run } from "../toolkit.js";
 
@@ -24,6 +25,13 @@ export function registerStartSession(server: McpServer): void {
       inputSchema: {
         client: z.string().max(50).optional().describe("e.g. claude_ai, claude_code."),
         platforms: z.array(z.string().max(30)).max(10).optional().describe("Platforms for this session. Default: the user's enabled platforms."),
+        posted_within: z
+          .enum(POSTED_WITHIN)
+          .optional()
+          .describe(
+            "LinkedIn: how recent the jobs should be, as the user said at the start: last hour (1h), 24 hours (24h) or week " +
+              "(1w). Holds for the whole session: the queue and the draft searches follow it. Default: the user's preference, else 24h."
+          ),
       },
       annotations: WRITE,
     },

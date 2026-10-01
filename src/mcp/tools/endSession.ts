@@ -2,8 +2,8 @@
  * Tool: end_session
  *
  * Closes the run and returns the numbers for the end-of-session summary, computed from
- * the database: counts per platform and status, provisional answers used (and which
- * companies saw them), and a 30-day funnel.
+ * the database: counts per platform and status, and provisional answers used (and which
+ * companies saw them).
  */
 
 import { z } from "zod";
@@ -18,8 +18,8 @@ export function registerEndSession(server: McpServer): void {
       title: "End the session",
       description:
         "Call last. Closes the run and returns counts per platform and status (from the database, not a tally), the " +
-        "provisional answers used and which companies saw them, and a 30-day funnel. Then tell the user those counts, " +
-        "what broke, an honest read of the funnel, and the provisional answers used.",
+        "provisional answers used and which companies saw them. Then tell the user those counts, what broke, and the " +
+        "provisional answers used.",
       inputSchema: {
         run_id: z.string().uuid().describe("From start_session."),
         summary: z.string().max(20000).optional().describe("What happened this session, in a few lines."),

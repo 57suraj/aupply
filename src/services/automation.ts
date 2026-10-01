@@ -12,7 +12,8 @@ import type { z } from "zod";
 import { getSupabaseClient } from "../db/supabase.js";
 import type { Json } from "../db/database.types.js";
 import { check, unwrap, unwrapMaybe } from "../lib/errors.js";
-import type { QueueJobsInput, ReportResultsInput } from "../domain/schemas.js";
+import type { PostedWithin, QueueJobsInput, ReportResultsInput } from "../domain/schemas.js";
+import { defaultWithin } from "../platforms/config.js";
 import { jobUrl, tryCanonicalJobId, wellfoundSlug, type ScriptedPlatform } from "../platforms/ids.js";
 import { mapResult } from "../platforms/results.js";
 
@@ -87,18 +88,31 @@ export async function activeBlock(userId: string, scopes: string[]) {
 
 /** The user's open session (start_session), so results are counted in end_session
     even when Claude does not pass run_id. */
-export async function currentRunId(userId: string): Promise<string | null> {
-  const row = unwrap(
+async function currentRun(userId: string) {
+  return unwrap(
     await db()
       .from("runs")
-      .select("id")
+      .select("id, metadata")
       .eq("user_id", userId)
       .is("ended_at", null)
       .gte("started_at", new Date(Date.now() - 12 * 3600_000).toISOString())
       .order("started_at", { ascending: false })
       .limit(1)
-  )[0];
-  return row?.id ?? null;
+  )[0] ?? null;
+}
+
+export async function currentRunId(userId: string): Promise<string | null> {
+  return (await currentRun(userId))?.id ?? null;
+}
+
+/** How recent the LinkedIn jobs are: the call's own choice, else the session's (start_session's
+    posted_within), else the user's preference. */
+export async function linkedinWithin(userId: string, override?: PostedWithin): Promise<PostedWithin> {
+  if (override) return override;
+  const fromRun = ((await currentRun(userId))?.metadata as Meta | null)?.linkedin_within;
+  if (fromRun) return fromRun as PostedWithin;
+  const prefs = unwrapMaybe(await db().from("preferences").select("max_posting_age_hours").eq("user_id", userId).maybeSingle());
+  return defaultWithin(prefs?.max_posting_age_hours);
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +155,11 @@ async function noteTracker(userId: string, count: number | null | undefined) {
 // Queue
 // ---------------------------------------------------------------------------
 
-const QUEUE_MAX_AGE_HOURS: Record<ScriptedPlatform, number> = { linkedin: 24, naukri: 72, wellfound: 168, indeed: 72 };
+/** How long a drafted job stays in its platform's queue. */
+export const QUEUE_MAX_AGE_HOURS: Record<ScriptedPlatform, number> = { linkedin: 24, naukri: 72, wellfound: 168, indeed: 72 };
+/** The drafted LinkedIn jobs a posted_within choice takes, by the window the draft found each in
+    (metadata.w); null takes them all. A job queued without one (a link) always counts. */
+const WITHIN_TAKES: Record<PostedWithin, string[] | null> = { "1h": ["1h"], "24h": ["1h", "24h"], "1w": null };
 
 export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsInput>) {
   const { platform } = input;
@@ -195,6 +213,7 @@ export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsI
   const score = (j: (typeof input.jobs)[number]) => {
     let s = 50;
     if (j.w === "1h") s += 30;
+    if (j.w === "1w") s -= 15;
     if (j.agg) s -= 40;
     if (j.yu) s -= 5;
     if (j.minY != null && maxYears != null && j.minY <= maxYears) s += 10;
@@ -252,18 +271,21 @@ export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsI
   };
 }
 
-/** The drafted queue for a platform, best first. */
-export async function queuedJobs(userId: string, platform: ScriptedPlatform, limit: number) {
+/** The drafted queue for a platform, best first; on LinkedIn only the jobs posted within `within`. */
+export async function queuedJobs(userId: string, platform: ScriptedPlatform, limit: number, within?: PostedWithin) {
   const since = new Date(Date.now() - QUEUE_MAX_AGE_HOURS[platform] * 3600_000).toISOString();
+  let q = db()
+    .from("applications")
+    .select("external_id, company_name, job_title, job_url, metadata")
+    .eq("user_id", userId)
+    .eq("platform", platform)
+    .eq("status", "discovered")
+    .eq("metadata->>needs_decision", "false")
+    .gte("created_at", since);
+  const takes = platform === "linkedin" && within ? WITHIN_TAKES[within] : null;
+  if (takes) q = q.or(`metadata->>w.is.null,metadata->>w.in.(${takes.join(",")})`);
   return unwrap(
-    await db()
-      .from("applications")
-      .select("external_id, company_name, job_title, job_url, metadata")
-      .eq("user_id", userId)
-      .eq("platform", platform)
-      .eq("status", "discovered")
-      .eq("metadata->>needs_decision", "false")
-      .gte("created_at", since)
+    await q
       .order("match_score", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: true })
       .limit(limit)

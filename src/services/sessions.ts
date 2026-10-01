@@ -2,7 +2,8 @@
  * Sessions: start_session opens a run and returns everything Claude needs before
  * applying (what waits on the user, what to reconcile, each
  * platform's state); end_session closes it with counts computed from the database,
- * not from Claude's tally, plus the provisional answers used and a 30-day funnel.
+ * not from Claude's tally, plus the provisional answers used. A session reports what it
+ * logged, not how applications convert.
  */
 
 import { getSupabaseClient } from "../db/supabase.js";
@@ -12,12 +13,12 @@ import { isScripted, SCRIPTED_PLATFORMS, type ScriptedPlatform } from "../platfo
 import { rulesOf } from "../platforms/config.js";
 import { listPendingActions } from "./applications.js";
 import { getPreferences, getProfile, setupGaps } from "./candidate.js";
-import { getState, linkedinCap, startOfDay } from "./automation.js";
+import { getState, linkedinCap, QUEUE_MAX_AGE_HOURS, queuedJobs, startOfDay } from "./automation.js";
+import { defaultWithin } from "../platforms/config.js";
+import type { PostedWithin } from "../domain/schemas.js";
 
 const db = () => getSupabaseClient();
 type Meta = Record<string, any>;
-
-const QUEUE_HOURS: Record<ScriptedPlatform, number> = { linkedin: 24, naukri: 72, wellfound: 168, indeed: 72 };
 /** Queued jobs that are enough to apply from: a chat does not re-draft (the draft engine is code to load and
     requests to the platform) until the queue runs low. */
 const QUEUE_ENOUGH: Record<ScriptedPlatform, number> = { linkedin: 10, naukri: 3, wellfound: 3, indeed: 3 };
@@ -29,11 +30,13 @@ const HOW_TO_CONFIRM: Record<string, string> = {
   naukri: "Re-run naukri_apply with these jobs: landed ones report ALREADY.",
 };
 
-export async function startSession(userId: string, input: { client?: string; platforms?: string[] }) {
+export async function startSession(userId: string, input: { client?: string; platforms?: string[]; posted_within?: PostedWithin }) {
   const [prefs, profile] = await Promise.all([getPreferences(userId), getProfile(userId)]);
   const setup = setupGaps(profile, prefs);
   const wanted = (input.platforms?.length ? input.platforms : prefs.platforms.length ? prefs.platforms : [...SCRIPTED_PLATFORMS]).map((p) => p.toLowerCase());
   const platforms = [...new Set(wanted.filter(isScripted))];
+  // How recent the LinkedIn jobs are, for the whole session: the draft searches and the queue follow it.
+  const within = input.posted_within ?? defaultWithin(prefs.max_posting_age_hours);
 
   const live = unwrap(
     await db()
@@ -46,7 +49,7 @@ export async function startSession(userId: string, input: { client?: string; pla
       .limit(1)
   )[0];
   const run = unwrap(
-    await db().from("runs").insert({ user_id: userId, client: input.client ?? null, metadata: { platforms } as Json }).select("id").single()
+    await db().from("runs").insert({ user_id: userId, client: input.client ?? null, metadata: { platforms, linkedin_within: within } as Json }).select("id").single()
   );
 
   const tz = profile.timezone || "Asia/Kolkata";
@@ -67,15 +70,9 @@ export async function startSession(userId: string, input: { client?: string; pla
 
   const state: Record<string, Meta> = {};
   for (const p of platforms) {
-    const { count } = await db()
-      .from("applications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("platform", p)
-      .eq("status", "discovered")
-      .eq("metadata->>needs_decision", "false")
-      .gte("created_at", new Date(Date.now() - QUEUE_HOURS[p] * 3600_000).toISOString());
-    const s: Meta = { queued: count ?? 0 };
+    // The same rows linkedin_apply's from_queue takes.
+    const s: Meta = { queued: (await queuedJobs(userId, p, 500, within)).length };
+    if (p === "linkedin") s.posted_within = within;
     // Drafted jobs that want a technology the user does not list wait for their decision.
     // Only the queue_jobs call that drafted them asks, so a chat that ended before the
     // user answered left them stuck (1 Oct: 14 LinkedIn jobs nobody was asked about again).
@@ -87,7 +84,7 @@ export async function startSession(userId: string, input: { client?: string; pla
         .eq("platform", p)
         .eq("status", "discovered")
         .eq("metadata->>needs_decision", "true")
-        .gte("created_at", new Date(Date.now() - QUEUE_HOURS[p] * 3600_000).toISOString())
+        .gte("created_at", new Date(Date.now() - QUEUE_MAX_AGE_HOURS[p] * 3600_000).toISOString())
         .order("match_score", { ascending: false, nullsFirst: false })
         .limit(30)
     );
@@ -184,18 +181,6 @@ export async function endSession(userId: string, input: { run_id: string; summar
     })
     .filter(Boolean);
 
-  const recent = unwrap(
-    await db()
-      .from("applications")
-      .select("status, stage")
-      .eq("user_id", userId)
-      .in("status", ["applied", "unconfirmed"])
-      .gte("applied_at", new Date(Date.now() - 30 * 86400_000).toISOString())
-      .limit(5000)
-  );
-  const funnel: Record<string, number> = { submitted: recent.length };
-  for (const r of recent) if (r.stage !== "none") funnel[r.stage] = (funnel[r.stage] ?? 0) + 1;
-
   await db()
     .from("runs")
     .update({
@@ -211,7 +196,6 @@ export async function endSession(userId: string, input: { run_id: string; summar
     run_id: run.id,
     counts_by_platform: counts,
     provisional_answers_used: used,
-    funnel_30d: funnel,
-    next: "Tell the user: the counts per platform above, what broke and what it cost, an honest read of the 30-day funnel (brutal, not encouraging), and every provisional answer used with the companies that saw it.",
+    next: "Tell the user: the counts per platform above, what broke, and every provisional answer used with the companies that saw it.",
   };
 }

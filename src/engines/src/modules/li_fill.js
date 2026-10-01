@@ -49,10 +49,10 @@ function li_fill(X) {
         if (v == null || v === '') { if (required(el, L)) un.push(L); continue; }
         setVal(el, String(v));
         log.push([L, String(v)]);
-        // City typeaheads only commit on a real click on the suggestion (applix item 45).
+        // A city typeahead keeps the value only once a suggestion is chosen: cont() picks one.
         if (!typeahead && (el.getAttribute('role') === 'combobox' || el.getAttribute('aria-autocomplete') === 'list')) {
           const r = el.getBoundingClientRect();
-          typeahead = { need: L, rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] };
+          typeahead = { el, v: String(v), need: L, rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] };
         }
       }
     }

@@ -442,7 +442,7 @@ async function main() {
   r = await tool(accessA, "get_application_stats");
   expect("get_application_stats", !r.isError && r.data.submitted === 2 && r.data.responded === 1 && r.data.by_status?.skipped === 1, r.data);
   r = await tool(accessA, "end_session", { run_id: runId, summary: "e2e", hurdles: "none" });
-  expect("end_session closes the run with DB counts and a funnel", !r.isError && r.data.counts_by_platform?.linkedin?.applied === 1 && r.data.funnel_30d?.submitted === 2, r.data);
+  expect("end_session closes the run with DB counts and no funnel", !r.isError && r.data.counts_by_platform?.linkedin?.applied === 1 && r.data.funnel_30d === undefined, r.data);
 
   section("Dashboard API");
   const noAuth = await http("GET", "/api/profile");
@@ -635,6 +635,19 @@ async function main() {
   }
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
   expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);
+  // How recent the LinkedIn jobs are: set once in start_session, followed by the queue and the draft searches.
+  r = await tool(accessA, "queue_jobs", { platform: "linkedin", jobs: [{ id: "4471000010", t: "Node Developer", co: "Wco", w: "1w" }] });
+  expect("queue_jobs queues a week-old posting", !r.isError && r.data.counts?.queued === 1, r.data);
+  r = await tool(accessA, "start_session", { client: "e2e", platforms: ["linkedin"], posted_within: "1h" });
+  expect("start_session holds posted_within and counts only the queue inside it", !r.isError && r.data.platforms?.linkedin?.posted_within === "1h" && r.data.platforms.linkedin.queued === 0, r.data?.platforms);
+  r = await tool(accessA, "linkedin_apply", { from_queue: true });
+  expect("the session's window leaves an older posting in the queue", !r.isError && r.data.nothing_to_apply === true, r.data);
+  r = await tool(accessA, "linkedin_apply", { from_queue: true, posted_within: "1w" });
+  expect("posted_within on the call takes it", !r.isError && r.data.jobs === 1 && r.data.posted_within === "1w", r.data);
+  r = await tool(accessA, "linkedin_draft", {});
+  expect("the draft searches the session's window", !r.isError && r.data.searching?.posted_within === "1h" && r.data.searching.windows?.join() === "1h", r.data?.searching);
+  r = await tool(accessA, "linkedin_draft", { posted_within: "1w" });
+  expect("a week sweeps the freshest windows first", !r.isError && r.data.searching?.windows?.join() === "1h,24h,1w", r.data?.searching);
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000002", r: "NO_MODAL", a: "att2" }] });
   expect("first NO_MODAL is retried", !r.isError && r.data.next?.some((n) => n.includes("Retry once")), r.data);
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000009", r: "DAILY_LIMIT", a: "att3" }] });

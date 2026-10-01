@@ -11,7 +11,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { engineConfig, loadUserData, rulesOf } from "../../platforms/config.js";
 import { envelope } from "../../platforms/envelope.js";
 import { blocked } from "../../platforms/jobs.js";
-import { activeBlock, linkedinCap } from "../../services/automation.js";
+import { PostedWithinInput } from "../../domain/schemas.js";
+import { activeBlock, linkedinCap, linkedinWithin } from "../../services/automation.js";
 import { READ_ONLY, run } from "../toolkit.js";
 
 export const LINKEDIN_TRACKER = "https://www.linkedin.com/jobs-tracker/?stage=applied";
@@ -25,10 +26,10 @@ export function registerLinkedinDraft(server: McpServer): void {
         "Build today's LinkedIn Easy Apply queue: the 30 to 40 best new jobs for the user, screened by their " +
         "preferences, minus everything Aupply already knows. Returns the exact steps (sweep, check_applied, prescreen, " +
         "queue_jobs) and the id of the draft engine for the LinkedIn jobs tracker page; load_engine brings it into the " +
-        "page (load_rule). Easy Apply only; last hour first, then the last 24 hours. The engine paces itself to stay under " +
+        "page (load_rule). Easy Apply only; the server picks the searches from posted_within (freshest first). The engine paces itself to stay under " +
         "LinkedIn's rate limits; never shorten a wait. Refuses while LinkedIn is in a backoff or today's quota is used.",
       inputSchema: {
-        windows: z.array(z.enum(["1h", "24h"])).max(2).optional().describe("Default both, last hour first."),
+        posted_within: PostedWithinInput,
         keywords: z.array(z.string().min(2).max(80)).max(12).optional().describe("Default: the user's desired roles."),
         target: z.number().int().min(5).max(60).optional().describe("Jobs to keep. Default 40."),
       },
@@ -43,19 +44,20 @@ export function registerLinkedinDraft(server: McpServer): void {
         if (cap.left <= 0) {
           return { skip: true, reason: `Today's LinkedIn quota is used (${cap.used} of ${cap.cap}).`, next: "Skip LinkedIn today; draft Naukri or Wellfound." };
         }
+        const within = await linkedinWithin(userId, args.posted_within);
         const cfg = engineConfig(d, "linkedin", {
           only: "screen",
-          screen: {
-            ...(args.windows ? { windows: args.windows.map((w) => (w === "1h" ? "r3600" : "r86400")) } : {}),
-            ...(args.keywords ? { keywords: args.keywords.map((k) => [k, 3]) } : {}),
-            ...(args.target ? { target: args.target } : {}),
-          },
+          linkedin: { within, keywords: args.keywords },
+          screen: args.target ? { target: args.target } : {},
         });
-        if (!(cfg.screen as { keywords?: unknown[] }).keywords?.length) {
+        const searches = (cfg.screen as { searches?: [string, string, number][] }).searches ?? [];
+        if (!searches.length) {
           return { skip: true, reason: "No roles to search for.", next: "Ask the user which roles to search, save them with update_profile (preferences.desired_roles), then call linkedin_draft again." };
         }
         return envelope(userId, "linkedin_draft", cfg, {
           cap_left: cap.left,
+          // What the engine will search, for telling the user; the engine has the exact list.
+          searching: { posted_within: within, roles: [...new Set(searches.map((s) => s[0]))], windows: [...new Set(searches.map((s) => s[1]))] },
           open: LINKEDIN_TRACKER,
           steps: [
             `Open ${LINKEDIN_TRACKER} (stay if already there; a LinkedIn tab left open from earlier may still hold the engine) and keep this tab for every step below.`,

@@ -251,7 +251,12 @@ consequential. Draft tools only return a script that reads (storing the queue is
 ### Shared tools
 
 **`start_session`**
-- Input: `client?`, `platforms?` (default `preferences.platforms`).
+- Input: `client?`, `platforms?` (default `preferences.platforms`), `posted_within?`
+  (LinkedIn: `1h`, `24h` or `1w`, as the user says at the start of the chat; default from
+  `max_posting_age_hours`, else `24h`). It is stored on the run (`metadata.linkedin_within`)
+  and holds for the session: `linkedin_draft` searches it, and the LinkedIn queue
+  (`queued` here, `from_queue` in `linkedin_apply`) holds only jobs a draft found inside it
+  (`metadata.w`). Either tool takes `posted_within` to override it for one call.
 - Returns: `run_id`; `pending_actions` (waiting on the user, soonest deadline first);
   `reconcile` (parked and unconfirmed jobs and how to confirm each: Indeed by asking the
   user which they submitted, LinkedIn unconfirmed by the tracker); per-platform state (LinkedIn
@@ -266,8 +271,8 @@ consequential. Draft tools only return a script that reads (storing the queue is
 - Input: `run_id`, `summary?`, `hurdles?`.
 - Returns: counts per platform and status for the run, computed from `applications`
   rather than Claude's tally; provisional answers used in the run and which companies
-  saw them; a 30-day funnel (applied, acknowledged, assessment, interview, rejected)
-  for the honest read the user asked for.
+  saw them. Nothing about how applications convert (1 Oct, the user: a session only
+  logs; the 30-day funnel came from the personal applix runs).
 
 **`check_applied`** (exists; changes)
 - Input: `platform`, `external_ids[]` (any form: ids, URLs, URNs), `companies?`.
@@ -321,14 +326,17 @@ consequential. Draft tools only return a script that reads (storing the queue is
 ### LinkedIn
 
 **`linkedin_draft`** (read-only). **Easy Apply jobs only.**
-- Input: `windows?` (`1h`, `24h`; default both, in that order; nothing older unless the
-  user raised `max_posting_age_hours`), `keywords?` (default `desired_roles`, plus
-  junior and associate variants when the user is junior; the applix set also adds
-  LLM Engineer and Generative AI Engineer), `target?` (default 40), `location?`.
+- Input: `posted_within?` (default the session's, see `start_session`), `keywords?`
+  (default `desired_roles`), `target?` (default 40). The server decides the searches
+  (`linkedinSearches` in `src/platforms/config.ts`) and the engine runs them as given:
+  `[keyword, window, pages]`, every keyword in the freshest window first. `1h` searches
+  the last hour; `24h` the last hour, then the last 24 hours (3 pages each); `1w` adds
+  the last week (5 pages, to reach past the newest postings). The response's
+  `searching` says what will be searched, for telling the user.
 - Returns the envelope (section 5). Open `/jobs-tracker/?stage=applied` and read the
   Applied count first: if the user's own session already spent today's quota, `next`
   says skip LinkedIn. Then three steps in one page lifetime:
-  1. `__aupply.sweep({ windows })`, detached and polled: guest search API with
+  1. `__aupply.sweep()`, detached and polled: the config's searches on the guest search API with
      `f_AL=true` (the Easy Apply filter, so nothing else enters), one request per second, parsed by
      regex because Trusted Types blocks `DOMParser`, then the title filter. Returns the
      candidates' job ids.
@@ -375,9 +383,13 @@ consequential. Draft tools only return a script that reads (storing the queue is
   Easy Apply is skipped; LinkedIn is Easy Apply only.
 - Handoffs, each followed by `__aupply.resume()`:
   - `NEEDS_CLICK` for city typeaheads ("Enter city or location" on PyjamaHR and
-    Greenhouse-backed forms): the engine returns the element's rect and `innerWidth`;
+    Greenhouse-backed forms). The engine first picks the suggestion itself (`pick` in
+    `li_job`: types the city again, waits up to 4s for a suggestion that starts with it
+    and names the user's country, sends it pointer and mouse events, reads the field
+    back); it never picks a city in another country. Only when that fails, or the form
+    refuses the page after a pick, does it return the element's rect and `innerWidth`:
     Claude clears the input, types the city and makes a real click on the suggestion
-    (scaling by screenshot width over `innerWidth`).
+    (scaling by screenshot width over `innerWidth`). 1 Oct: 3 of 15 jobs needed it.
   - `FOLLOW_STUCK`: the pre-ticked "Follow <company>" box would not untick from script;
     Claude makes a real click on it and reads `checked` back.
 
@@ -572,6 +584,12 @@ Rules every engine follows, from the browser tool's limits:
   the LinkedIn tools tell Claude not to ask. A status carries `hid:1` while the tab is
   hidden, and a LinkedIn result carries it when its job ran hidden (stored in the
   application's metadata), so a failure seen only in hidden tabs shows in the record.
+  A hidden tab also renders the job page late: with fixed waits (6s title, 3.5s modal)
+  the first hidden run (1 Oct) read 3 Easy Apply jobs as `NO_EASY_APPLY`, 2 as
+  `NO_MODAL` and 1 as `TITLE_MISMATCH`, where two visible runs had none. The runner now
+  polls up to 15s each for the title, the apply control and the modal, and says
+  `NO_EASY_APPLY` (a permanent skip) only when the company-site Apply is on the page;
+  no apply control at all is `NOT_LOADED`, retried once.
 - **No answer longer than 900 characters.** The Chrome extension cuts a JavaScript answer
   at exactly 1000 characters (1 Oct: the sweep's 66 ids and the prescreen's drops came back
   cut off, so they could not be passed on as-is). `core` caps every status answer
@@ -605,7 +623,8 @@ Rules every engine follows, from the browser tool's limits:
 | `READY_FOR_CAPTCHA` | Indeed | `parked` | tell the user; ask which they sent |
 | `CLOSED` | LinkedIn | `closed` | never retry |
 | `EXTERNAL`, `NO_INDEED_APPLY` | Naukri, Indeed | `lead` | log only |
-| `NO_EASY_APPLY` | LinkedIn | `skipped` | LinkedIn is Easy Apply only; no lead is logged |
+| `NO_EASY_APPLY` | LinkedIn | `skipped` | only when the company-site Apply is on the page; LinkedIn is Easy Apply only; no lead is logged |
+| `NOT_LOADED` | LinkedIn | first: unchanged; second: `failed` | no apply control within 15s (a hidden tab can hold the page back); retry once |
 | `SKIP_<n>YRS`, `SKIP_LOWPAY`, `DUPLICATE_COMPANY`, relocation | Wellfound | `skipped` with reason | |
 | protected fact required, no honest option | all | `skipped` | list in the summary |
 | `406` | Naukri | first: unchanged; second: `failed` | retry once |
@@ -883,7 +902,7 @@ chat. Do not take screenshots to check the engine's work; its answers are the re
 5. The engine's verdict is not proof. Report the platform's own applied count when a
    response asks for it.
 6. Call end_session, then tell the user: counts per platform (from end_session), what
-   broke, an honest read of the funnel, and any provisional answers used.
+   broke, and any provisional answers used.
 
 If you cannot control a browser, say so. You can still screen links the user pastes and
 prepare answers.

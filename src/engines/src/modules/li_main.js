@@ -2,7 +2,7 @@
    minute pause after "Rate Limited" and a stop on the second) and window.__aupply. */
 function li_main(X) {
   'use strict';
-  const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont } = X;
+  const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont, until } = X;
   let pageWait = P.page;
 
   /* The run carries on in a hidden tab: the Chrome window behind the Claude app is the usual
@@ -79,7 +79,9 @@ function li_main(X) {
             await nav('/jobs/view/' + id + '/');
             if (rateLimited()) { ST.push({ id, r: 'RATE_LIMITED', n: 2, a: aid() }); S.end = 'rate_limited'; break; }
           }
-          if (co && !(document.title || '').toLowerCase().includes(co.toLowerCase().slice(0, 6))) {
+          // The title can trail the navigation, more so in a hidden tab (1 Oct: a TITLE_MISMATCH).
+          const named = () => !co || (document.title || '').toLowerCase().includes(co.toLowerCase().slice(0, 6));
+          if (!(await until(named, P.card))) {
             record(id, co, { result: 'TITLE_MISMATCH' });
           } else {
             let res;

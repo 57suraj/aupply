@@ -294,6 +294,14 @@ export const RunInput = z
 
 export const SCRIPTED_PLATFORMS = ["linkedin", "naukri", "wellfound", "indeed"] as const;
 
+/** How recent the LinkedIn jobs are: the user says it when a session starts. */
+export const POSTED_WITHIN = ["1h", "24h", "1w"] as const;
+export type PostedWithin = (typeof POSTED_WITHIN)[number];
+export const PostedWithinInput = z
+  .enum(POSTED_WITHIN)
+  .optional()
+  .describe("LinkedIn: jobs posted within the last hour (1h), 24 hours (24h) or week (1w), as the user asked. Default: the session's choice, else 24h.");
+
 const short = (max: number) => z.string().max(max).optional();
 
 export const DraftJob = z

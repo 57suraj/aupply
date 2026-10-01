@@ -91,13 +91,23 @@ function li_dom(X) {
   const sentTo = () => { const m = deepText().match(/application was sent to ([^!]{1,45})/i); return m ? m[1].trim() : null; };
   const dismiss = () => { const b = deepAll('button').find((x) => /^(not now|done|dismiss|no thanks)$/i.test((x.innerText || x.textContent || '').trim())); if (b) b.click(); };
   const limitHit = () => /reached today'?s easy apply limit|easy apply limit/i.test(document.body.innerText + ' ' + deepText());
-  // Easy Apply is sometimes an <a>, not a <button>.
-  const easy = () => {
+  /* The job page's apply control, not clicked: Easy Apply (sometimes an <a>, not a <button>)
+     or the company-site Apply. null until the top card has rendered. */
+  const applyControl = () => {
     const all = deepAll('button,a');
     let b = all.find((x) => /^easy apply$/i.test(txt(x)));
     if (!b) b = all.find((x) => /easy apply to this job/i.test(x.getAttribute('aria-label') || ''));
     if (!b) b = all.find((x) => /^easy apply/i.test(txt(x)));
-    if (!b) return false;
+    if (b) return { easy: true };
+    b = all.find((x) => /^apply$/i.test(txt(x)) || /on company website/i.test(x.getAttribute('aria-label') || ''));
+    return b ? { easy: false } : null;
+  };
+  // Clicks Easy Apply; false when the page shows none.
+  const easy = () => {
+    const c = applyControl();
+    if (!c || !c.easy) return false;
+    const all = deepAll('button,a');
+    const b = all.find((x) => /^easy apply$/i.test(txt(x))) || all.find((x) => /easy apply to this job/i.test(x.getAttribute('aria-label') || '')) || all.find((x) => /^easy apply/i.test(txt(x)));
     b.click();
     return true;
   };
@@ -105,5 +115,5 @@ function li_dom(X) {
   const alreadyApplied = () => /\byou applied\b|\bapplied \d+ (second|minute|hour|day|week|month)s? ago\b|application submitted/i.test(document.body.innerText);
   const pageTitle = () => { const p = (document.title || '').split('|').map((x) => x.trim()); return { t: cut(p[0], 70), co: cut(p[1], 40) }; };
 
-  return { CONSENT, NEVERTICK, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, easy, closed, alreadyApplied, pageTitle };
+  return { CONSENT, NEVERTICK, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, applyControl, easy, closed, alreadyApplied, pageTitle };
 }

@@ -204,6 +204,11 @@ everywhere:
   a live test. The server answers a call to an unknown tool with a message saying so
   (`staleToolCall` in `src/mcp/server.ts`), and the instructions forbid clicking through
   job boards by hand and screenshot verification.
+- How recent LinkedIn jobs are is a session setting: the user says it at the start and
+  `start_session` takes `posted_within` (`1h`, `24h`, `1w`; stored on the run). The server
+  turns it into the draft's searches (`linkedinSearches`), and the LinkedIn queue holds
+  only jobs found inside it. Sessions log what happened; they never judge conversion (no
+  funnel in `end_session`; the user's call, 1 Oct).
 - A chat drafts only when a platform's queue is low (`QUEUE_ENOUGH` in `src/services/sessions.ts`):
   start_session's `next` sends a healthy queue straight to apply. Drafting means loading the draft
   engine and sweeping the platform, and a fresh LinkedIn page already costs about 78KB of code per

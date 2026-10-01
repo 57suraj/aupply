@@ -20,6 +20,9 @@ function li_sweep(X) {
     return o;
   };
   const re = (src) => (src ? new RegExp(src, 'i') : null);
+  // The server decides the searches: [keyword, window, pages], freshest window first.
+  const TPR = { '1h': 'r3600', '24h': 'r86400', '1w': 'r604800' };
+  const AGE = { '1h': 0, '24h': 1, '1w': 2 };
 
   const sweep = () => {
     if (S.running) return 'RUNNING';
@@ -29,26 +32,24 @@ function li_sweep(X) {
       let stop = null;
       const tracker = trackerCount();
       try {
-        for (const w of SC.windows || ['r3600', 'r86400']) {
-          for (const kp of SC.keywords || []) {
-            for (let p = 0; p < (kp[1] || 1); p++) {
-              const u = new URL('https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search');
-              u.searchParams.set('keywords', kp[0]);
-              u.searchParams.set('location', SC.location || 'India');
-              if (SC.geoId) u.searchParams.set('geoId', SC.geoId);
-              u.searchParams.set('f_TPR', w);
-              u.searchParams.set('f_AL', 'true');
-              u.searchParams.set('sortBy', 'DD');
-              u.searchParams.set('start', String(p * 10));
-              let st = 0, body = '';
-              try { const r = await fetch(u.toString(), { credentials: 'include' }); st = r.status; body = r.ok ? await r.text() : ''; } catch (e) { st = -1; }
-              if (st === 429 || st === 999) { stop = 'rate_limited_search'; break; }
-              const cards = parseCards(body);
-              for (const j of cards) if (!map.has(j.id)) { j.w = w === 'r3600' ? '1h' : '24h'; map.set(j.id, j); }
-              await sleep(P.search);
-              if (cards.length < 10) break; // no further pages for this keyword
-            }
-            if (stop) break;
+        for (const s of SC.searches || []) {
+          const kw = s[0], w = s[1];
+          for (let p = 0; p < (s[2] || 1); p++) {
+            const u = new URL('https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search');
+            u.searchParams.set('keywords', kw);
+            u.searchParams.set('location', SC.location || 'India');
+            if (SC.geoId) u.searchParams.set('geoId', SC.geoId);
+            u.searchParams.set('f_TPR', TPR[w] || 'r86400');
+            u.searchParams.set('f_AL', 'true');
+            u.searchParams.set('sortBy', 'DD');
+            u.searchParams.set('start', String(p * 10));
+            let st = 0, body = '';
+            try { const r = await fetch(u.toString(), { credentials: 'include' }); st = r.status; body = r.ok ? await r.text() : ''; } catch (e) { st = -1; }
+            if (st === 429 || st === 999) { stop = 'rate_limited_search'; break; }
+            const cards = parseCards(body);
+            for (const j of cards) if (!map.has(j.id)) { j.w = w; map.set(j.id, j); }
+            await sleep(P.search);
+            if (cards.length < 10) break; // no further pages for this search
           }
           if (stop) break;
         }
@@ -68,8 +69,8 @@ function li_sweep(X) {
           j.agg = AGG && AGG.test(j.co) ? 1 : 0;
           keep.push(j);
         }
-        // Job-ad networks last (they land but never reply), last-hour postings first.
-        keep.sort((a, b) => a.agg - b.agg || (a.w === '1h' ? 0 : 1) - (b.w === '1h' ? 0 : 1));
+        // Job-ad networks last (they land but never reply), the freshest postings first.
+        keep.sort((a, b) => a.agg - b.agg || AGE[a.w] - AGE[b.w]);
         S.cand = keep;
         // The ids in chunks that fit one answer, then the summary with done:1.
         const ids = keep.map((j) => j.id);

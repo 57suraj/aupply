@@ -8,12 +8,12 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ApplyJobsInput } from "../../domain/schemas.js";
+import { ApplyJobsInput, PostedWithinInput } from "../../domain/schemas.js";
 import { asciiJson, h31 } from "../../engines/index.js";
 import { engineConfig, loadUserData, rulesOf } from "../../platforms/config.js";
 import { envelope } from "../../platforms/envelope.js";
 import { applyList, blocked } from "../../platforms/jobs.js";
-import { activeBlock, linkedinCap, markQueueStarted } from "../../services/automation.js";
+import { activeBlock, linkedinCap, linkedinWithin, markQueueStarted } from "../../services/automation.js";
 import { run } from "../toolkit.js";
 import { LINKEDIN_TRACKER } from "./linkedinDraft.js";
 
@@ -30,6 +30,7 @@ export function registerLinkedinApply(server: McpServer): void {
         "await __aupply.wait(35000) and send results to report_results every 5 jobs and at the end.",
       inputSchema: {
         ...ApplyJobsInput,
+        posted_within: PostedWithinInput,
         keep_open: z.boolean().optional().describe("One job, leaving the form open for a real-click handoff (NEEDS_CLICK, FOLLOW_STUCK)."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
@@ -41,9 +42,14 @@ export function registerLinkedinApply(server: McpServer): void {
         const d = await loadUserData(userId);
         const cap = await linkedinCap(userId, rulesOf(d.prefs));
         if (cap.left <= 0) return { skip: true, reason: `Today's LinkedIn quota is used (${cap.used} of ${cap.cap}).`, next: "Stop LinkedIn for today." };
-        const { list, dropped } = await applyList(userId, "linkedin", args, args.keep_open ? 1 : cap.left);
+        const within = await linkedinWithin(userId, args.posted_within);
+        const { list, dropped } = await applyList(userId, "linkedin", args, args.keep_open ? 1 : cap.left, within);
         if (!list.length) {
-          return { nothing_to_apply: true, dropped, next: args.from_queue ? "The queue is empty: run linkedin_draft first." : "No job left to apply to." };
+          return {
+            nothing_to_apply: true,
+            dropped,
+            next: args.from_queue ? `No queued job was posted within ${within}: run linkedin_draft first.` : "No job left to apply to.",
+          };
         }
         await markQueueStarted(userId, "linkedin");
         const cfg = engineConfig(d, "linkedin", { only: "answers", overrides: args.answers });
@@ -53,6 +59,7 @@ export function registerLinkedinApply(server: McpServer): void {
         const runQueue = `__aupply.runQueue(${asciiJson(pairs)},{${args.keep_open ? "keepOpen:true," : ""}k:${h31(JSON.stringify(pairs))}})`;
         return envelope(userId, "linkedin", cfg, {
           cap_left: cap.left,
+          ...(args.from_queue ? { posted_within: within } : {}),
           jobs: list.length,
           ...(dropped.length ? { dropped } : {}),
           open: LINKEDIN_TRACKER,

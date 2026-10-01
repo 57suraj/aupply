@@ -3,6 +3,7 @@
  * links, or the drafted queue), and the response when a platform is in a backoff.
  */
 
+import type { PostedWithin } from "../domain/schemas.js";
 import { AppError } from "../lib/errors.js";
 import { jobsById, queuedJobs } from "../services/automation.js";
 import { jobUrl, tryCanonicalJobId, wellfoundSlug, type ScriptedPlatform } from "./ids.js";
@@ -15,7 +16,8 @@ export async function applyList(
   userId: string,
   platform: ScriptedPlatform,
   args: { jobs?: string[]; from_queue?: boolean; limit?: number },
-  max: number
+  max: number,
+  within?: PostedWithin
 ) {
   const dropped: [string, string][] = [];
   let list: ApplyJob[] = [];
@@ -36,7 +38,7 @@ export async function applyList(
       list.push({ id, co: row && row.company_name !== "(unknown)" ? row.company_name : "", url });
     }
   } else if (args.from_queue) {
-    list = (await queuedJobs(userId, platform, max)).map((r) => ({
+    list = (await queuedJobs(userId, platform, max, within)).map((r) => ({
       id: r.external_id as string,
       co: r.company_name !== "(unknown)" ? r.company_name : "",
       url: r.job_url,

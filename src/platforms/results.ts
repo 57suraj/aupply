@@ -22,6 +22,8 @@ const done = (status: Status, reason?: string): Outcome => ({ status, reason, ne
 const RETRYABLE = new Set([
   "NO_MODAL", "STALL", "NO_BUTTON", "TITLE_MISMATCH", "ERR", "REJECTED", "NO_ANSWERABLE_QUESTION",
   "CLICK_FAILED", "NO_INPUT", "TYPE_FAILED", "MAX_STEPS", "NO_RESULT", "NO_SEND", "STUCK",
+  // LinkedIn: the job page showed no apply control within 15s (a hidden tab can hold it back).
+  "NOT_LOADED",
 ]);
 
 export function mapResult(platform: string, rec: { r: string; n?: number; why?: string; need?: string[]; y?: number }, priorFailures: number): Outcome {
