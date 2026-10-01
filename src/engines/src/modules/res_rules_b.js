@@ -19,7 +19,7 @@ function res_rules_b(X) {
     if (/are you (currently )?(based|located|living|residing) (in|at|out of)|currently (based|located|living) in|do you (live|reside|stay) in|based out of/.test(s)) {
       const here = namesCity(s);
       m = s.match(/(?:out of|in|at)\s+([a-z .]{3,22})/);
-      const there = m ? m[1].replace(/[^a-z ]/g, '').trim().replace(/\b\w/g, (c) => c.toUpperCase()) : 'the role’s city';
+      const there = m ? m[1].replace(/[^a-z ]/g, '').trim().replace(/\b\w/g, (c) => c.toUpperCase()) : "the role's city";
       const sentence = here ? 'Yes' : ME.city ? 'I am currently based in ' + ME.city + (ME.relocate === false ? '.' : ' and I am willing to relocate to ' + there + ' for a work from office role.') : null;
       return val('location.based_in', sentence, { yn: here ? 'yes' : 'no' });
     }

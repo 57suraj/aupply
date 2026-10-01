@@ -66,6 +66,11 @@ async function formatFn(src, label) {
   const out = code.trim();
   if (!out.startsWith("__F__ = function") || !out.endsWith(";")) fail(`${label}: unexpected printer output`);
   const fn = out.slice("__F__ = ".length, -1);
+  // A copier "resolves" a \uXXXX escape into the glyph or a straight quote, which passes the
+  // parser and fails the checksum, the same way every time (30 Sep: res_rules_b, \u2019 in
+  // "the role's city", three failed loads). Write the glyph or an ASCII equivalent instead.
+  const esc = /\\u[0-9a-fA-F]{4}/.exec(fn);
+  if (esc) fail(`${label}: contains the escape ${esc[0]}; use the character itself or an ASCII equivalent (a copier turns escapes into glyphs)`);
   // A part's checksum ignores line edges, which is only safe when no literal spans lines.
   const sf = ts.createSourceFile(`${label}.js`, `x = ${fn}`, ts.ScriptTarget.ES2022, true);
   const visit = (n) => {

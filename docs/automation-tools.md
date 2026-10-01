@@ -555,6 +555,9 @@ Rules every engine follows, from the browser tool's limits:
   can report). Parts are real names and one statement per line, about 19% more tokens
   than minified by a rough estimate, for far fewer copy errors. A part's checksum ignores
   line edges and blank lines, so whitespace that changes in transit does not matter.
+  Served code never contains a `\uXXXX` escape (the build fails on one): a copier turns an
+  escape into the glyph or a straight quote, which passes the parser and fails the checksum
+  the same way every time (30 Sep: `res_rules_b`, a curly apostrophe, three failed loads).
 - **`wait` is event-driven, at most 35s.** It answers at once when nothing runs, wakes on a
   result or when the run stops, and otherwise on one timer: a loop of one-second sleeps
   adds a throttled tab's delay to every tick (30 Sep: 10s waits answered, 20s and longer

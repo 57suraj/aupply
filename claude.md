@@ -208,7 +208,9 @@ everywhere:
   copies it by hand and mis-copies dense minified code. A part's checksum ignores line
   edges. `wait` is event-driven (one timer, at most 35s), never a polling loop of sleeps,
   and the LinkedIn runner waits for a visible tab before each job; status carries `hid:1`
-  when the tab is hidden. Phone fields get the national number (`me.phoneNational`).
+  when the tab is hidden. Phone fields get the national number (`me.phoneNational`). No
+  `\uXXXX` escapes in engine sources: copiers resolve them and the checksum fails (the
+  build rejects one).
 - Parts are at most 9KB and loaded by Claude, never the user. Never `eval` on LinkedIn
   (CSP, even on the tracker page after the first load); on Naukri, Wellfound and Indeed
   the engine caches itself in page storage and `loaded_check` re-loads it with no server

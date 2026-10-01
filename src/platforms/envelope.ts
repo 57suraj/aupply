@@ -19,7 +19,8 @@ const ONLY_THE_ENGINE =
     timers of a hidden tab (the window behind another one, or another tab in front). */
 const KEEP_VISIBLE =
   "Keep this tab visible: if a status carries hid:1 the tab is hidden (another tab in front, or the Chrome window covered or " +
-  "minimized) and Chrome slows its scripts, so bring the tab to the front and tell the user if the window is covered. Poll " +
+  "minimized) and Chrome slows its scripts, so bring the tab to the front and tell the user if the window is covered. If you " +
+  "can run shell commands (for example Claude Code on macOS), run: open -a \"Google Chrome\". Poll " +
   "quietly: call wait and say nothing in between, no screenshots. If a call times out the script is still running: use " +
   "__aupply.status(), which answers at once, and never reload, navigate or open another tab.";
 

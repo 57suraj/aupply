@@ -37,7 +37,7 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.6.2";
+export const MCP_SERVER_VERSION = "0.6.3";
 
 /** Sent to the client at initialize; tells Claude how a session should go. */
 const INSTRUCTIONS = `Aupply holds the user's job-search data and the scripts that apply to jobs for them on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed. The scripts run in the user's own browser through your browser tool; Aupply never contacts job sites itself.
