@@ -75,6 +75,7 @@ export function registerLinkedinApply(server: McpServer): void {
             "Do not navigate this tab or open another tab while the queue runs.",
             "The runner stops itself at LinkedIn's daily limit and after a second rate limit. Do not restart it.",
             "Phase 'stalled' means one job made no progress for 4 minutes: report what you have, tell the user, and do not restart the runner.",
+            "Technology questions follow the user's own rule: Yes for their skills and for anything a developer with their stack picks up quickly (a framework, tool, database or cloud: Tailwind for someone who uses Bootstrap); No for a language or platform they have no foothold in (Java, .NET, iOS); industry experience is asked once. This is the user's decision: do not pause or stop the run over these answers.",
             ...(args.keep_open
               ? ["Handoff: when the result is NEEDS_CLICK, click the suggestion under the field named in need (rect is in page pixels; scale by screenshot width / iw); for FOLLOW_STUCK untick Follow with a real click. Then run __aupply.resume('<id>') and poll."]
               : []),

@@ -5,6 +5,13 @@ function res_rules_b(X) {
   'use strict';
   const { ME, KEYED, has, val, saved, years, namesCity, techYes, titleWords } = X;
 
+  // A technology answer: Yes (or the years), No (or 0) for a far technology, null in strict
+  // mode for one the user does not list (asked).
+  const techAns = (s, yes) => {
+    const ok = techYes(s);
+    return val('experience.tech', ok ? yes : ok === false ? (yes === 'Yes' ? 'No' : '0') : null, { yn: ok === false ? 'no' : 'yes' });
+  };
+
   const rulesB = (s) => {
     let m;
     if (/english/.test(s) && /rate|scale|out of 10|1 to 10/.test(s)) return val('english', '9');
@@ -40,9 +47,9 @@ function res_rules_b(X) {
     if (/certificat/.test(s)) return val('certifications', saved('certifications', null), { yn: has(KEYED.certifications) ? 'yes' : null });
     if (/bachelor|degree|graduat|b\.?tech|education/.test(s)) return val('education.has_degree', ME.degree ? 'Yes' : null, { yn: 'yes' });
     if (/relocat/.test(s)) return val('relocate', ME.relocate === false ? 'No' : 'Yes', { yn: ME.relocate === false ? 'no' : 'yes' });
-    if (/have you (ever )?(worked|shipped|written|modell?ed|designed|built|used|implemented|integrated|deployed|owned|led|managed|contributed)/.test(s)) return val('experience.tech', techYes(s) ? 'Yes' : null, { yn: 'yes' });
-    if (/do you (use|write|code|build|work|ship|have)\b/.test(s)) return val('experience.tech', techYes(s) ? 'Yes' : null, { yn: 'yes' });
-    if (/familiar|do you have (experience|knowledge)|proficient|hands.?on|knowledge of/.test(s)) return val('experience.tech', techYes(s) ? 'Yes' : null, { yn: 'yes' });
+    if (/have you (ever )?(worked|shipped|written|modell?ed|designed|built|used|implemented|integrated|deployed|owned|led|managed|contributed)/.test(s)) return techAns(s, 'Yes');
+    if (/do you (use|write|code|build|work|ship|have)\b/.test(s)) return techAns(s, 'Yes');
+    if (/familiar|do you have (experience|knowledge)|proficient|hands.?on|knowledge of/.test(s)) return techAns(s, 'Yes');
     if (/willing|comfortable|able to (work|commute|join)|can you (join|work|commute)/.test(s)) return val('willing', 'Yes', { yn: 'yes' });
     // A phone field has its own country selector: the national number, unless the question asks for the code.
     if (/phone|mobile|contact number/.test(s)) return val('phone', /country code|with code|isd|\+\d/.test(s) ? ME.phone : (ME.phoneNational || ME.phone));
@@ -61,7 +68,7 @@ function res_rules_b(X) {
     if (/applications?|solutions?|projects?|contribution|worked on|\bbuilt\b/.test(s)) return val('projects_text', saved('long.projects', null));
     // Catch-all, last so it never pre-empts a specific rule: bare noun-phrase prompts
     // such as "AI development experience?".
-    if (/experience|expertise|exposure|skill|knowledge|worked on|familiarity|\bwith\b|using/.test(s)) return val('experience.tech', techYes(s) ? years : null, { yn: 'yes' });
+    if (/experience|expertise|exposure|skill|knowledge|worked on|familiarity|\bwith\b|using/.test(s)) return techAns(s, years);
     return null;
   };
 

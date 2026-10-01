@@ -5,11 +5,11 @@
    question wrongly in a live application (see docs/automation-tools.md). */
 function res_rules_a(X) {
   'use strict';
-  const { ME, KEYED, norm, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, years, months, lakhs, techYes, titleWords } = X;
+  const { ME, KEYED, norm, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, years, months, lakhs, techClaim, techYes, titleWords } = X;
 
   // "Do you have 2+ years of software development experience?" is a yes/no on the user's
   // own total years, not a technology question (1 Oct: answered Yes for a user with 0.5).
-  // A threshold that names a technology ("3+ years with React") stays with the tech rules.
+  // A threshold that names a technology ("3+ years with React") has its own rule below.
   const GEN = '(?:hands.?on|professional|relevant|total|overall|industry|work|working|full.?time|it|software|engineering|development|developer|backend|back.?end|frontend|front.?end|full.?stack|web|programming|coding|technical)';
   const THRESHOLD = new RegExp('^(?:do|have|are|did) you\\b.*?(\\d+(?:\\.\\d+)?)\\s*\\+?\\s*(?:or more |plus )?years?\\s+(?:of |in )?(?:' + GEN + '\\s+)*experience(?:\\s+(?:in|as)\\s+(?:an? |the )?(?:' + GEN + '\\s*)+)?$');
   // The employer's name, so "Have you previously worked with WNS?" reads as a former-employee
@@ -29,6 +29,10 @@ function res_rules_a(X) {
     if (EEO.test(s)) return val('eeo', saved('eeo', null), { eeo: true });
     m = s.match(THRESHOLD);
     if (m) { const ok = ME.years == null ? null : ME.years >= parseFloat(m[1]); return val('experience.years_at_least', ok == null ? null : ok ? 'Yes' : 'No', { yn: ok == null ? null : ok ? 'yes' : 'no' }); }
+    // Far technologies and industry domains (res_base), before the
+    // years rules below would answer them with the user's total.
+    const t = techClaim(s);
+    if (t) return t;
 
     // Numeric questions first, before any Yes rule can fire (amendments 69, 79).
     if (/how much (total |overall |relevant )?experience/.test(s)) return val('experience.years', years);

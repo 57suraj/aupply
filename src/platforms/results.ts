@@ -3,7 +3,7 @@
  * rules applix kept in prose (retry a 406 once, NO_MODAL, the cap) live here.
  */
 
-type Status = "applied" | "unconfirmed" | "parked" | "skipped" | "lead" | "closed" | "failed";
+type Status = "applied" | "unconfirmed" | "parked" | "saved" | "skipped" | "lead" | "closed" | "failed";
 
 export type Next = "continue" | "retry" | "ask_user" | "handoff" | "drive_again";
 

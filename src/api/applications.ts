@@ -1,12 +1,13 @@
 /**
  * Application and event routes (mounted at /api, behind requireUser):
  *
- *   GET    /applications?status=a,b&stage=&platform=&q=&since=&limit=&offset=
+ *   GET    /applications?status=a,b&stage=&platform=&q=&since=&limit=&offset=&sort=created|applied
  *   GET    /applications/stats
  *   POST   /applications/check           { platform?, external_ids?, companies? }
  *   POST   /applications                 manual add (upserts on platform + external_id)
  *   GET    /applications/:id             with events and screening questions
  *   PATCH  /applications/:id
+ *   POST   /applications/:id/apply       the user applied to a saved job by hand
  *   DELETE /applications/:id
  *   POST   /applications/:id/events      record an outcome or note
  *   GET    /events?pending=true&limit=
@@ -37,6 +38,7 @@ applicationsRouter.get("/applications", async (req, res) => {
     since: strParam(req.query.since),
     limit: intParam(req.query.limit),
     offset: intParam(req.query.offset),
+    sort: strParam(req.query.sort),
   });
   res.json(await applications.listApplications(userId(res), query));
 });
@@ -67,6 +69,10 @@ applicationsRouter.get("/applications/:id", async (req, res) => {
 
 applicationsRouter.patch("/applications/:id", async (req, res) => {
   res.json(await applications.updateApplication(userId(res), idParam(req), ApplicationPatch.parse(req.body)));
+});
+
+applicationsRouter.post("/applications/:id/apply", async (req, res) => {
+  res.json(await applications.applyByHand(userId(res), idParam(req)));
 });
 
 applicationsRouter.delete("/applications/:id", async (req, res) => {

@@ -66,8 +66,11 @@ export async function resolveAnswers(userId: string, input: { questions: Questio
           ...(fromRow ? { answer_id: row.id } : {}),
         };
       }
-      // A known question the user has not answered, or no rule at all: past answers.
-      const best = (await findSimilarAnswers(userId, item.q, 3)).find((m) => m.score >= MIN_SIMILARITY);
+      // A known question the user has not answered, or no rule at all: past answers. A domain
+      // question takes only the user's own saved answer: past applications hold the old blanket
+      // Yes to "FinTech experience" (1 Oct).
+      const domain = a?.k.startsWith("domain.") ?? false;
+      const best = (await findSimilarAnswers(userId, item.q, 3)).find((m) => m.score >= MIN_SIMILARITY && (!domain || m.source === "saved"));
       if (best) {
         const answer = numeric(best.answer, item);
         return {

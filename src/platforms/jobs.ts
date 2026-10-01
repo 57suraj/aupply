@@ -10,7 +10,8 @@ import { jobUrl, tryCanonicalJobId, wellfoundSlug, type ScriptedPlatform } from 
 
 export interface ApplyJob { id: string; co: string; url: string | null }
 
-const DONE = new Set(["applied", "unconfirmed", "parked", "closed"]);
+// saved: not Easy Apply, waiting on the dashboard for the user to apply by hand.
+const DONE = new Set(["applied", "unconfirmed", "parked", "closed", "saved"]);
 
 export async function applyList(
   userId: string,
@@ -32,7 +33,7 @@ export async function applyList(
       // tripped Claude's permission check on 28 Sep.
       const ats = raw.match(/applicantTrackingSystemName=([A-Za-z]+)/)?.[1];
       if (platform === "linkedin" && ats && !/linkedin/i.test(ats)) { dropped.push([id, `external ATS (${ats})`]); continue; }
-      if (row && DONE.has(row.status)) { dropped.push([id, `already ${row.status}`]); continue; }
+      if (row && DONE.has(row.status)) { dropped.push([id, row.status === "saved" ? "not Easy Apply: saved for a manual apply" : `already ${row.status}`]); continue; }
       const url = platform === "wellfound" ? (wellfoundSlug(raw) ? jobUrl(platform, id, wellfoundSlug(raw)) : row?.job_url ?? null) : jobUrl(platform, id);
       if (!url) { dropped.push([id, "Wellfound needs the full job URL (a bare id 404s)"]); continue; }
       list.push({ id, co: row && row.company_name !== "(unknown)" ? row.company_name : "", url });

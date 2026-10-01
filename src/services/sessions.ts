@@ -120,7 +120,7 @@ export async function startSession(userId: string, input: { client?: string; pla
     ...(pending.length ? ["Raise pending_actions with the user first: anything waiting on them outranks new applications."] : []),
     ...(groups.size ? ["Reconcile parked and unconfirmed jobs as each group's `how` says."] : []),
     ...(Object.values(state).some((s) => s.ask_user)
-      ? ["Some drafted jobs want a technology the user does not list (platforms.<platform>.ask_user): ask the user in one message whether to apply to each, then pass their answers to queue_jobs (platform, decisions) so the kept ones join the queue."]
+      ? ["Some drafted jobs want a technology the user does not list (platforms.<platform>.ask_user): ask the user in one message whether to apply to each (keeping one means its form answers No / 0 years for that technology), then pass their answers to queue_jobs (platform, decisions) so the kept ones join the queue."]
       : []),
     ...(state.naukri?.refresh_due ? ["Run naukri_refresh_profile once today."] : []),
     ...platforms.map((p) =>
@@ -196,6 +196,8 @@ export async function endSession(userId: string, input: { run_id: string; summar
     run_id: run.id,
     counts_by_platform: counts,
     provisional_answers_used: used,
-    next: "Tell the user: the counts per platform above, what broke, and every provisional answer used with the companies that saw it.",
+    next:
+      "Tell the user: the counts per platform above, what broke, and every provisional answer used with the companies that saw it." +
+      (apps.some((a) => a.status === "saved") ? " Jobs counted as saved are strong matches that are not Easy Apply: they wait on the user's Aupply dashboard to apply by hand." : ""),
   };
 }

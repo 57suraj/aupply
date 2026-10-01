@@ -19,7 +19,8 @@ function res_base(X) {
   const months = ME.years == null ? null : String(Math.round(ME.years * 12));
   const lakhs = (n) => (n == null ? null : String(Math.round((n / 1e5) * 100) / 100));
   const skills = (ME.skills || []).map(norm).filter(Boolean);
-  const skillIn = (s) => { const t = norm(s); return skills.some((k) => k && (t.includes(k) || k.includes(t))); };
+  // Whole words only: "java" is not inside "javascript", nor "go" inside "mongodb".
+  const skillIn = (s) => { const t = ' ' + norm(s) + ' '; return skills.some((k) => t.includes(' ' + k + ' ')); };
   const cityRe = [ME.city, ME.region].filter(Boolean).map((c) => esc(String(c).toLowerCase())).join('|');
   const namesCity = (s) => !!cityRe && new RegExp(cityRe).test(s);
   const saved = (k, dflt) => (has(KEYED[k]) ? KEYED[k] : dflt);
@@ -33,7 +34,14 @@ function res_base(X) {
     [/(home|residential|permanent|street|full|postal|mailing) address|\baddress line|postal code|zip ?code|pin ?code/, 'address'],
     [/father|mother|spouse|family member/, 'family'],
   ];
-  const techYes = (tail) => (POL.tech === 'skills' && tail && !skillIn(tail) ? null : true);
+  /* Technology questions, the user's own policy: Yes for their skills and for anything a
+     developer with their stack picks up quickly (tools, frameworks, databases, clouds); No only
+     for a technology of a language or platform they have no foothold in (POL.far, from the
+     server). A question that also names one of their skills is a Yes. Strict mode ('skills'):
+     Yes for their skills, anything else asked. */
+  const FAR = POL.far ? new RegExp(POL.far, 'i') : null;
+  const farTech = (s) => !!FAR && FAR.test(s) && !skillIn(s);
+  const techYes = (s) => (POL.tech === 'skills' ? (skillIn(s) ? true : null) : !farTech(s));
 
   // Money parsers (moneyRange, payMax) come from the pay module.
   const band = (T, rangeOf, x) => {
@@ -87,7 +95,36 @@ function res_base(X) {
   };
 
   const val = (k, v, extra) => Object.assign({ k, v: has(v) ? v : null }, extra || {});
+  // A question that claims something about a technology (not "are you interested in this Java role").
+  const CLAIM = /experien|years|months|familiar|proficien|knowledge|\bknow\b|worked|\bwork(ing)? (with|in|on)\b|\bused?\b|using|hands.?on|expertise|skill|\brate\b|rating|written|built|do you have/;
+  // Industry words that always mean a domain, and ones that do only next to "domain", "industry"...
+  const DOMAIN = /\b(fin ?tech|bfsi|ed ?tech|health ?tech|insur ?tech|prop ?tech|ad ?tech|mar ?tech|e-?commerce)\b/;
+  const DOMAIN_NEAR = /\b(banking|financial services|finance|insurance|health ?care|pharma|retail|logistics|supply chain|telecom|gaming|real estate|automotive|manufacturing|hospitality|travel|payments)\b/;
+  /* Technology and industry questions that must not reach the years rules (res_rules_a calls
+     this right after its total-years threshold): a far technology, an industry domain.
+     null: neither. */
+  const techClaim = (s) => {
+    let m;
+    // A technology from a language or platform the user has no foothold in (the server's far
+    // list): No, 0 years, the lowest rating; res_rules_a's years rules would hand LinkedIn's
+    // "How many years of work experience do you have with Java?" the user's total (1 Oct).
+    // Willingness to learn is not a claim and goes on to the other rules.
+    if (farTech(s) && CLAIM.test(s) && !/willing|open to|comfortable|ready to|learn/.test(s)) {
+      if (/\brate\b|rating|scale|out of/.test(s)) return val('experience.tech', '1', { yn: 'no' });
+      return val('experience.tech', /how (many|much|long)|years|months|number of/.test(s) ? '0' : 'No', { yn: 'no' });
+    }
+    // Industry experience is work history, not a skill picked up quickly: the user's saved answer,
+    // else asked once (1 Oct: FinTech got the blanket Yes). Integration work (a payment gateway,
+    // an API) is a technology question and stays with the technology rules.
+    m = s.match(DOMAIN) || (/\b(domain|industry|sector|vertical)\b/.test(s) ? s.match(DOMAIN_NEAR) : null);
+    if (m && !/integrat|gateway|\bapis?\b|\bsdks?\b/.test(s)) {
+      const k = 'domain.' + m[1].replace(/[^a-z]/g, '');
+      const v = saved(k, null);
+      return val(k, v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null });
+    }
+    return null;
+  };
   const titleWords = (t) => { const w = norm(t).split(' ').filter((x) => x.length > 2); return w.length ? new RegExp(w.map(esc).join('|'), 'i') : null; };
 
-  return { ME, KEYED, norm, OVER, SAVED, has, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, techYes, band, numRange, daysBand, val, titleWords };
+  return { ME, KEYED, norm, OVER, SAVED, has, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, farTech, techYes, techClaim, band, numRange, daysBand, val, titleWords };
 }

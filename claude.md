@@ -22,8 +22,10 @@ automation tools (draft and apply on LinkedIn, Naukri, Wellfound, Indeed, plus
 `queue_jobs`, `report_results` and `load_engine`). The automation tools are **built but not yet
 proven in a browser** (the live tests stopped at loading the engine; it now reaches the
 page in small parts the server hands out on request): see `docs/automation-tools.md`. **The MCP tools are the product; the dashboard is a
-nice-to-have**, so automation work comes before dashboard work. Dashboard UI: the Resume section is real (`client/src/components/ResumeManager.tsx`);
-the other sections are still placeholders ("coming in next phase"), leave them until asked. **Payments are on hold**: the provider is undecided, so do
+nice-to-have**, so automation work comes before dashboard work. Dashboard UI: the Resume
+(`client/src/components/ResumeManager.tsx`), Saved for you and Applications sections are real;
+Preferences and Saved Answers are still placeholders ("coming in next phase"), leave them until
+asked. **Payments are on hold**: the provider is undecided, so do
 not build on Stripe or `subscriptions`, and do not gate tools on a subscription.
 
 ## Layout
@@ -129,7 +131,12 @@ Conventions for every table:
 Domain semantics:
 - `applications`: one row per job touched. Dedup key `(user_id, platform, external_id)`;
   `log_application` upserts on it and only updates the fields passed. `status` is what
-  we did (`discovered, lead, skipped, parked, applied, unconfirmed, failed, closed`).
+  we did (`discovered, lead, saved, skipped, parked, applied, unconfirmed, failed, closed`).
+  `saved`: a strong match Aupply cannot apply to (not Easy Apply; `strongMatch` in
+  `src/platforms/fit.ts`), listed on the dashboard for the user to apply to by hand.
+  `applied_by` says who submitted: `aupply` (engine or Claude), `user` (the dashboard's
+  Apply, a manual apply), null when unknown. Manual applies never count toward the
+  LinkedIn Easy Apply cap.
   `stage` is what the employer did: a trigger derives it from `application_events`,
   so never write it directly; insert an event.
 - `application_events`: outcomes and notes. `action_required and not action_done`
@@ -170,9 +177,13 @@ everywhere:
 - "Drafting" means building the apply queue (LinkedIn: the day's 30 to 40 best jobs).
   Apply tools submit, taking ids or links or `from_queue`; there is no
   fill-without-submit mode. Indeed always stops at the CAPTCHA for the user.
-- Technology questions: while drafting, jobs whose JD names a main technology the user
-  doesn't list are asked about in one batch; inside an application every technology
-  or stack question is answered Yes.
+- Technology questions (the user's rule, 1 Oct, replacing the blanket Yes that made a
+  chat stop a run): Yes for the user's skills and anything a developer with their stack
+  picks up quickly (tools, frameworks, databases, clouds); No / 0 years only for a
+  language or platform they have no foothold in (`farStack` over `STACK_VOCAB` in
+  `src/platforms/knowledge.ts`, sent as `policy.far`); industry domains ("FinTech
+  experience") are asked once and saved (`domain.<name>`). The same far list holds jobs
+  at draft time for the user's decision. Keep this cheap: no per-framework vocabulary.
 - One tool per platform per action (`linkedin_draft`, `linkedin_apply`, `naukri_*`,
   `wellfound_*`, `indeed_*`); shared tools for data (`check_applied`, `queue_jobs`,
   `report_results`, `resolve_answers`, `update_profile`, `start_session`, `end_session`).
@@ -268,3 +279,13 @@ everywhere:
   engines are ports of the 16 Sep scripts; the newer copies (28 Sep Wellfound, Naukri
   `answer()` patches, Indeed v2) exist only in the Claude project "apply".
 - Later: pgvector for semantic answer matching, `org_id` if teams ever arrive.
+- Future (the user, 1 Oct; build nothing for it yet, automation comes first): a user with no
+  history searches by skills or titles and gets fresh job links other Aupply users' sweeps
+  found. The schema already allows it: every job is stored under its canonical platform id
+  (`applications_external_id_canonical`), so the same posting found by different users is
+  one key, and the server (service role) can read postings across users. When it is built,
+  split the posting facts (title, company, location, url, first/last seen) into a global
+  `jobs` table keyed `(platform, external_id)` that `applications` references, and have the
+  prescreen record the technologies a JD names (today only the ones missing for that user
+  are kept). Never expose who found a job or what they did with it. Keep new posting facts
+  in posting columns, not in user-specific fields, so the split stays mechanical.

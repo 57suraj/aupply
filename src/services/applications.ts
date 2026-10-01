@@ -24,7 +24,7 @@ const db = () => getSupabaseClient();
 
 /** List view: everything except the heavy JD / cover note text. */
 const LIST_COLUMNS =
-  "id, platform, external_id, job_url, company_name, job_title, location, work_mode, salary_min, salary_max, salary_currency, salary_period, salary_text, experience_min_years, experience_max_years, status, status_reason, stage, applied_at, posted_at, match_score, source, resume_id, run_id, created_at, updated_at";
+  "id, platform, external_id, job_url, company_name, job_title, location, work_mode, salary_min, salary_max, salary_currency, salary_period, salary_text, experience_min_years, experience_max_years, status, status_reason, stage, applied_at, applied_by, posted_at, match_score, source, resume_id, run_id, created_at, updated_at";
 
 // PostgREST .or() uses commas and parentheses as syntax; strip them from free text.
 const orSafe = (value: string) => escapeLike(value.replace(/[,()]/g, " ").trim());
@@ -42,9 +42,10 @@ export async function listApplications(userId: string, query: ApplicationListQue
     const term = orSafe(query.q);
     if (term) q = q.or(`company_name.ilike.%${term}%,job_title.ilike.%${term}%`);
   }
-  const { data, error, count } = await q
-    .order("created_at", { ascending: false })
-    .range(query.offset, query.offset + query.limit - 1);
+  const { data, error, count } = await (query.sort === "applied"
+    ? q.order("applied_at", { ascending: false, nullsFirst: false })
+    : q.order("created_at", { ascending: false })
+  ).range(query.offset, query.offset + query.limit - 1);
   return { items: unwrap({ data, error }), total: count ?? 0 };
 }
 
@@ -130,6 +131,25 @@ export async function updateApplication(userId: string, id: string, patch: z.inf
   );
   if (!row) throw notFound("Application");
   return row;
+}
+
+/** The user applied to a saved job themselves (the dashboard's Apply): applied, by the user.
+    The applied_at trigger stamps the time. Only a saved job: anything else Aupply tracks itself. */
+export async function applyByHand(userId: string, id: string) {
+  const row = unwrapMaybe(
+    await db()
+      .from("applications")
+      .update({ status: "applied", applied_by: "user", status_reason: "applied by you (manual apply)" })
+      .eq("id", id)
+      .eq("user_id", userId)
+      .eq("status", "saved")
+      .select(LIST_COLUMNS)
+      .maybeSingle()
+  );
+  if (row) return row;
+  const exists = unwrapMaybe(await db().from("applications").select("status").eq("id", id).eq("user_id", userId).maybeSingle());
+  if (!exists) throw notFound("Application");
+  throw new AppError(`Only a saved job can be marked as applied by hand (this one is ${exists.status}).`, 409, "conflict");
 }
 
 export async function deleteApplication(userId: string, id: string) {

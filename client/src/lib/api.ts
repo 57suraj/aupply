@@ -134,6 +134,39 @@ export async function uploadResumeFile(
 }
 
 // ---------------------------------------------------------------------------
+// Applications
+// ---------------------------------------------------------------------------
+
+export interface Application {
+  id: string;
+  platform: string;
+  external_id: string | null;
+  job_url: string | null;
+  company_name: string;
+  job_title: string;
+  location: string | null;
+  status: string;
+  status_reason: string | null;
+  applied_at: string | null;
+  /** "user": the user applied by hand (from the dashboard); "aupply": an engine or Claude. */
+  applied_by: "aupply" | "user" | null;
+  created_at: string;
+}
+
+export const listApplications = (params: { status: string[]; sort?: "created" | "applied"; limit?: number }) =>
+  request<{ items: Application[]; total: number }>(
+    "GET",
+    `/api/applications?${new URLSearchParams({
+      status: params.status.join(","),
+      sort: params.sort ?? "created",
+      limit: String(params.limit ?? 50),
+    })}`
+  );
+
+/** The user applied to a saved job by hand: recorded as applied, by the user. */
+export const applyByHand = (id: string) => request<Application>("POST", `/api/applications/${id}/apply`);
+
+// ---------------------------------------------------------------------------
 // Stripe / subscriptions
 // ---------------------------------------------------------------------------
 

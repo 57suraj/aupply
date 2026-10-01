@@ -4,6 +4,8 @@ import { createCheckoutSession } from "../lib/api";
 import { Nav } from "../components/Nav";
 import { Button } from "../components/Button";
 import { ResumeManager } from "../components/ResumeManager";
+import { SavedJobs } from "../components/SavedJobs";
+import { ApplicationTracker } from "../components/ApplicationTracker";
 
 const mcpUrl =
   (import.meta.env.VITE_MCP_BASE_URL as string | undefined) ||
@@ -44,6 +46,8 @@ export default function Dashboard() {
   const [copying, setCopying] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [subError, setSubError] = useState("");
+  // Bumped when the user applies to a saved job, so the tracker reloads.
+  const [appsVersion, setAppsVersion] = useState(0);
 
   const fullMcpUrl = `${mcpUrl}/mcp`;
 
@@ -163,12 +167,9 @@ export default function Dashboard() {
           placeholder="Saved answers coming in next phase. Behavioral and application answers will be automatically retrieved and stored via saveAnswer."
         />
 
-        <Section
-          label="History"
-          title="Application History"
-          className="md:col-span-2"
-          placeholder="Application records coming in next phase. Track all roles Claude has researched or applied to via getApplicationHistory."
-        />
+        {/* ── Jobs ───────────────────────────────────────────── */}
+        <SavedJobs onApplied={() => setAppsVersion((v) => v + 1)} />
+        <ApplicationTracker version={appsVersion} />
 
         {/* ── Subscription ──────────────────────────────────── */}
         <div className="md:col-span-2 rounded-2xl border border-white/[0.1] bg-[#121216] overflow-hidden">

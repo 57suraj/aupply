@@ -207,10 +207,11 @@ the server instead of carrying the runbook.
 built into small parts that check their own checksum), versioned by content hash, and
 self-test when loaded.
 
-**D10. Technology questions are settled at draft time.** While drafting, jobs whose
-JD names a main technology the user doesn't list go to the user in one batch to keep
-or drop. Inside an application, every technology or stack question is answered Yes
-(settled 30 Sep, section 7).
+**D10. Technology questions follow one model, at draft time and in the form.** A main
+technology (a language, framework or platform in `STACK_VOCAB`) is "far" when the user
+has no foothold in its family. While drafting, jobs whose JD names a far technology go to
+the user in one batch to keep or drop. Inside an application a far technology is No / 0
+years and everything else is Yes (section 7, the user's rule from 1 Oct).
 
 **D11. Every job Aupply touches is one row keyed by `(user_id, platform, canonical job
 id)`, and a draft checks that index before spending anything on a job** (section 9,
@@ -623,7 +624,7 @@ Rules every engine follows, from the browser tool's limits:
 | `READY_FOR_CAPTCHA` | Indeed | `parked` | tell the user; ask which they sent |
 | `CLOSED` | LinkedIn | `closed` | never retry |
 | `EXTERNAL`, `NO_INDEED_APPLY` | Naukri, Indeed | `lead` | log only |
-| `NO_EASY_APPLY` | LinkedIn | `skipped` | only when the company-site Apply is on the page; LinkedIn is Easy Apply only; no lead is logged |
+| `NO_EASY_APPLY` | LinkedIn | `saved` for a strong match (`strongMatch`: the title names one of the user's roles, no far technology, not a job-ad network, years and level fit), else `skipped` | only when the company-site Apply is on the page; saved jobs wait on the dashboard ("Saved for you"), where Apply opens the job and records it as applied by the user (`applied_by = 'user'`, outside the Easy Apply cap) |
 | `NOT_LOADED` | LinkedIn | first: unchanged; second: `failed` | no apply control within 15s (a hidden tab can hold the page back); retry once |
 | `SKIP_<n>YRS`, `SKIP_LOWPAY`, `DUPLICATE_COMPANY`, relocation | Wellfound | `skipped` with reason | |
 | protected fact required, no honest option | all | `skipped` | list in the summary |
@@ -681,24 +682,42 @@ each becomes a test:
 The test corpus is every question quoted in the applix scripts and amendments, with its
 expected key and answer.
 
-**Technology policy** (settled 30 Sep). Any "do you have experience with X", "how many
-years of X" or stack question, inside any application (engine or by hand):
-- Yes, and the user's headline years (1 year for applix) for "how many years". Never
-  No, never 0. This is the applix rule from 27 Sep: a No costs the job, a Yes costs
-  nothing.
+**Technology policy** (the user's rule, 1 Oct; it replaced the 27 Sep blanket Yes, which
+answered "1 year" to Java and Spring Boot for a Node/Python developer and made a chat stop the
+run). Any "do you have experience with X", "how many years of X", proficiency or stack
+question, inside any application (engine or by hand):
+- Yes, and the user's headline years, for a technology on the profile and for anything a
+  developer with their stack picks up quickly: tools, libraries, frameworks in a family they
+  know, databases, clouds, CSS kits ("Tailwind getting a No for someone with Bootstrap is
+  stupid": the user's words). Nothing is listed for these: what is not far is Yes.
+- No, 0 years, or the lowest rating for a far technology: one of `STACK_VOCAB`'s languages,
+  frameworks or platforms (Java, Spring, .NET, PHP, Go, Ruby, Rust, C++, Kotlin, Swift, iOS,
+  Android, Flutter, Salesforce, SAP...) whose family the user has no foothold in. Footholds
+  are the entry's `aliases`: React gives Vue, Angular and React Native; Java gives Spring and
+  Kotlin; JavaScript or TypeScript gives Node.js. The server compiles the far list
+  (`farStack`) into `policy.far`; `techClaim` in `res_base` answers it before the years rules,
+  which would otherwise give LinkedIn's "How many years of work experience do you have with
+  Java?" the user's total. A question that also names one of the user's skills is a Yes;
+  "willing to work in Java" is a willingness question, Yes. A user with no skills listed has
+  nothing far.
+- Industry domains ("FinTech experience", "banking domain") are work history, not a skill:
+  the user's saved answer for `domain.<name>`, else asked once (NEEDS_INPUT) and saved.
+  `resolve_answers` takes only the user's own saved answer for these, never the history of
+  past applications (which holds the old blanket Yes). Integration work ("payment gateway
+  integration") stays a technology question.
 - A saved answer for that technology always wins over the policy.
-- The policy covers technology and stack only. Facts keep their own rules: "worked
-  for <company>" is No, sponsorship follows the saved answers, protected keys are never
-  inferred. Three facts that got the blanket Yes in the first live run (1 Oct): a total
-  experience threshold ("Do you have 2+ years of software development experience?") is
-  answered from the user's years; "worked with <the employer>" is the former-employee
-  question (the engine passes the employer's name to `R.A`); a driver's license, vehicle
-  or laptop is asked, never assumed.
+- Facts keep their own rules: "worked for <company>" is No, sponsorship follows the saved
+  answers, protected keys are never inferred, a total experience threshold ("Do you have 2+
+  years of software development experience?") is answered from the user's years, a driver's
+  license, vehicle or laptop is asked, never assumed.
 - LinkedIn's years fields take whole numbers only ("Invalid input" for 0.5, 1 Oct): the
   form filler rounds years to the nearest whole number, and `repair()` rounds any decimal
   a numeric field refuses.
-- The asking happens earlier, at draft time (section 8, stack check), which is where
-  the user decides whether a job outside their stack is worth applying to at all.
+- `linkedin_apply` states the rule to Claude in one sentence and says it is the user's
+  decision, so a chat does not pause over it.
+- Not done yet: "Do you have 3+ years with React?" still gets Yes for a user with fewer
+  total years (the engine build's question set expects that answer; changing it needs that
+  fixture updated).
 
 `rules.tech_questions = "skills"` is available for a user who wants strict answers
 (Yes only for technologies in their skills, otherwise `NEEDS_INPUT`).

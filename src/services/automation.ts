@@ -15,6 +15,7 @@ import { check, unwrap, unwrapMaybe } from "../lib/errors.js";
 import type { PostedWithin, QueueJobsInput, ReportResultsInput } from "../domain/schemas.js";
 import { defaultWithin } from "../platforms/config.js";
 import { jobUrl, tryCanonicalJobId, wellfoundSlug, type ScriptedPlatform } from "../platforms/ids.js";
+import { strongMatch } from "../platforms/fit.js";
 import { mapResult } from "../platforms/results.js";
 
 const db = () => getSupabaseClient();
@@ -133,6 +134,7 @@ export async function linkedinCap(userId: string, rules: Meta) {
     .eq("user_id", userId)
     .eq("platform", "linkedin")
     .in("status", ["applied", "unconfirmed"])
+    .or("applied_by.is.null,applied_by.neq.user") // a manual apply is not an Easy Apply submission
     .gte("applied_at", since.toISOString());
   if (error) throw error;
   const ours = count ?? 0;
@@ -266,7 +268,7 @@ export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsI
     ...(invalid.length ? { invalid } : {}),
     ...(stopped ? { stopped } : {}),
     next: ask.length
-      ? `Show the user the ask_user jobs in one message (each wants a technology they do not list) and pass their answers to queue_jobs as decisions. Meanwhile apply to the rest: ${platform}_apply with from_queue.`
+      ? `Show the user the ask_user jobs in one message (each wants a technology they do not list; keeping one means its form answers No / 0 years for that technology) and pass their answers to queue_jobs as decisions. Meanwhile apply to the rest: ${platform}_apply with from_queue.`
       : `Apply: ${platform}_apply with from_queue.`,
   };
 }
@@ -323,6 +325,21 @@ export async function appliedCompanies(userId: string, platform: ScriptedPlatfor
 // Results
 // ---------------------------------------------------------------------------
 
+const RESULT_ROW = "id, external_id, status, metadata, job_title, experience_min_years";
+
+/** The user's roles and years, for strongMatch (src/platforms/fit.ts). */
+async function fitUser(userId: string) {
+  const [prefs, profile] = await Promise.all([
+    db().from("preferences").select("desired_roles").eq("user_id", userId).maybeSingle(),
+    db().from("profiles").select("years_experience, current_title").eq("id", userId).maybeSingle(),
+  ]);
+  const p = unwrapMaybe(prefs), pr = unwrapMaybe(profile);
+  const roles = p?.desired_roles?.length ? p.desired_roles : ([pr?.current_title].filter(Boolean) as string[]);
+  return { roles, years: pr?.years_experience ?? null };
+}
+
+const SAVED_REASON = "not Easy Apply; a strong match, saved on the dashboard for you to apply yourself";
+
 export async function reportResults(userId: string, input: z.infer<typeof ReportResultsInput>) {
   const { platform } = input;
   const runId = input.run_id ?? (await currentRunId(userId));
@@ -332,7 +349,7 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
   const ids = [...new Set(items.map((x) => x.id))];
   const rows = new Map(
     (ids.length
-      ? unwrap(await db().from("applications").select("id, external_id, status, metadata").eq("user_id", userId).eq("platform", platform).in("external_id", ids))
+      ? unwrap(await db().from("applications").select(RESULT_ROW).eq("user_id", userId).eq("platform", platform).in("external_id", ids))
       : []
     ).map((r) => [r.external_id as string, r])
   );
@@ -341,6 +358,8 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
   const retry: string[] = [], driveAgain: string[] = [];
   const ask: { id: string; questions: string[] }[] = [];
   const handoff: Record<string, unknown>[] = [];
+  const saved: string[] = [];
+  let user: Awaited<ReturnType<typeof fitUser>> | null = null;
   let stopped: { scope: string; until: string; reason: string } | null = null;
   let streak: number | null = null;
 
@@ -350,7 +369,13 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
     const seen: string[] = meta.attempt_ids ?? [];
     if (rec.a && seen.includes(rec.a)) continue; // already recorded (a repeated poll)
     const fails = meta.fails ?? 0;
-    const o = mapResult(platform, rec, fails);
+    let o = mapResult(platform, rec, fails);
+    // Not Easy Apply (the company-site Apply was on the page) but a strong match: saved for the
+    // user to apply to by hand from the dashboard.
+    if (rec.r === "NO_EASY_APPLY" && row) {
+      user ??= await fitUser(userId);
+      if (strongMatch({ title: row.job_title, minYears: row.experience_min_years, facts: meta }, user)) o = { ...o, status: "saved", reason: SAVED_REASON };
+    }
     const metadata = {
       ...meta,
       last_result: rec.r,
@@ -364,10 +389,11 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
     const values = {
       metadata,
       ...(o.status ? { status: o.status, status_reason: o.reason ?? null } : {}),
+      ...((o.status === "applied" || o.status === "unconfirmed") && !/^ALREADY/.test(rec.r) ? { applied_by: "aupply" } : {}),
       ...(runId ? { run_id: runId } : {}),
     };
-    const saved = row
-      ? unwrap(await db().from("applications").update(values).eq("id", row.id).eq("user_id", userId).select("id, external_id, status, metadata").single())
+    const kept = row
+      ? unwrap(await db().from("applications").update(values).eq("id", row.id).eq("user_id", userId).select(RESULT_ROW).single())
       : unwrap(
           await db()
             .from("applications")
@@ -375,14 +401,15 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
               ...values, user_id: userId, platform, external_id: id, status,
               company_name: rec.co || "(unknown)", job_title: rec.t || "(unknown)", job_url: jobUrl(platform, id), source: "aupply",
             })
-            .select("id, external_id, status, metadata")
+            .select(RESULT_ROW)
             .single()
         );
-    rows.set(id, saved);
-    recorded.push([id, rec.r, saved.status]);
+    rows.set(id, kept);
+    recorded.push([id, rec.r, kept.status]);
+    if (kept.status === "saved" && row?.status !== "saved") saved.push(id);
 
-    if (rec.qa?.length && ["applied", "unconfirmed", "parked"].includes(saved.status)) {
-      check(await db().from("application_questions").insert(rec.qa.map(([question, answer]) => ({ user_id: userId, application_id: saved.id, question, answer }))));
+    if (rec.qa?.length && ["applied", "unconfirmed", "parked"].includes(kept.status)) {
+      check(await db().from("application_questions").insert(rec.qa.map(([question, answer]) => ({ user_id: userId, application_id: kept.id, question, answer }))));
     }
 
     if (o.next === "retry") retry.push(id);
@@ -422,6 +449,7 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
         .eq("user_id", userId)
         .eq("platform", "linkedin")
         .in("status", ["applied", "unconfirmed"])
+        .or("applied_by.is.null,applied_by.neq.user")
         .gte("applied_at", st.queue_started_at);
       trackerCheck = { moved: (after as number) - (before as number), recorded: count ?? 0 };
     }
@@ -429,6 +457,7 @@ export async function reportResults(userId: string, input: z.infer<typeof Report
 
   const next: string[] = [];
   if (stopped) next.push(`Stop ${stopped.scope} until ${stopped.until} (${stopped.reason}). Its tools refuse scripts until then.`);
+  if (saved.length) next.push(`${saved.length} job(s) were not Easy Apply but are strong matches: saved on the user's Aupply dashboard for them to apply to by hand. Mention them in the summary.`);
   if (retry.length) next.push(`Retry once: ${platform}_apply with jobs ${JSON.stringify(retry)}.`);
   if (ask.length) next.push("For the questions in ask_user: call resolve_answers first, ask the user (in one message) only what stays unknown or protected, save their answers with save_answer (confirmed_by_user), then re-run apply for those jobs with `answers`.");
   if (handoff.length) next.push("Handoffs need a real click: re-run those jobs one at a time with keep_open, do the click the code names (NEEDS_CLICK: click the suggestion under the field; FOLLOW_STUCK: untick Follow; NEEDS_DROPDOWN: open the box, type, click the option), then call __aupply.resume('<id>') or drive('<id>').");

@@ -42,6 +42,7 @@ export function registerGetApplicationHistory(server: McpServer): void {
           since,
           limit,
           offset,
+          sort: "created",
         })
       )
   );

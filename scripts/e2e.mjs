@@ -648,6 +648,38 @@ async function main() {
   expect("the draft searches the session's window", !r.isError && r.data.searching?.posted_within === "1h" && r.data.searching.windows?.join() === "1h", r.data?.searching);
   r = await tool(accessA, "linkedin_draft", { posted_within: "1w" });
   expect("a week sweeps the freshest windows first", !r.isError && r.data.searching?.windows?.join() === "1h,24h,1w", r.data?.searching);
+  // Technology answers (the user lists Node.js): a far stack is No / 0, a learnable tool Yes, an industry asked once.
+  r = await tool(accessA, "resolve_answers", {
+    questions: [{ q: "How many years of work experience do you have with Java?" }, { q: "Are you familiar with Tailwind CSS?" }, { q: "Do you have FinTech domain experience?" }],
+  });
+  const tq = r.data || [];
+  expect("technology answers: a far stack is 0, a learnable tool Yes, an industry asked", !r.isError && tq[0]?.answer === "0" && tq[1]?.answer === "Yes" && tq[2]?.status === "unknown" && tq[2]?.key === "domain.fintech", tq);
+  // Not Easy Apply: a strong match is saved for the user to apply to by hand, a weak one skipped.
+  r = await tool(accessA, "queue_jobs", { platform: "linkedin", jobs: [{ id: "4471000020", t: "Backend Engineer", co: "Strongco", w: "24h" }, { id: "4471000021", t: "Data Analyst", co: "Weakco", w: "24h" }] });
+  expect("queue_jobs queues two jobs for the saved check", !r.isError && r.data.counts?.queued === 2, r.data);
+  r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000020", r: "NO_EASY_APPLY", a: "att20" }, { id: "4471000021", r: "NO_EASY_APPLY", a: "att21" }] });
+  expect(
+    "not Easy Apply: a strong match is saved, a weak one skipped",
+    !r.isError && r.data.recorded?.find((x) => x[0] === "4471000020")?.[2] === "saved" && r.data.recorded?.find((x) => x[0] === "4471000021")?.[2] === "skipped" && r.data.next?.some((n) => n.includes("dashboard")),
+    r.data
+  );
+  a = await http("GET", "/api/applications?status=saved", { token: userToken });
+  const savedJob = a.body?.items?.find((x) => x.external_id === "4471000020");
+  expect("the dashboard lists the saved job with its link", a.status === 200 && Boolean(savedJob?.job_url?.includes("4471000020")), a.body);
+  r = await tool(accessA, "start_session", { client: "e2e", platforms: ["linkedin"] });
+  const capBefore = r.data?.platforms?.linkedin?.cap_left;
+  a = await http("POST", `/api/applications/${savedJob?.id}/apply`, { token: userToken });
+  expect("Apply records the saved job as applied by the user", a.status === 200 && a.body.status === "applied" && a.body.applied_by === "user" && Boolean(a.body.applied_at), a.body);
+  a = await http("POST", `/api/applications/${savedJob?.id}/apply`, { token: userToken });
+  expect("only a saved job can be applied to by hand", a.status === 409, a.body);
+  a = await http("GET", "/api/applications?status=applied,unconfirmed&sort=applied", { token: userToken });
+  expect(
+    "the tracker shows the manual apply first and the engine's submission as Aupply's",
+    a.status === 200 && a.body.items?.[0]?.external_id === "4471000020" && a.body.items[0].applied_by === "user" && a.body.items.find((x) => x.external_id === "4471000001")?.applied_by === "aupply",
+    a.body?.items?.slice(0, 3)
+  );
+  r = await tool(accessA, "start_session", { client: "e2e", platforms: ["linkedin"] });
+  expect("a manual apply does not use the Easy Apply cap", !r.isError && typeof capBefore === "number" && r.data.platforms?.linkedin?.cap_left === capBefore, { before: capBefore, after: r.data?.platforms?.linkedin?.cap_left });
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000002", r: "NO_MODAL", a: "att2" }] });
   expect("first NO_MODAL is retried", !r.isError && r.data.next?.some((n) => n.includes("Retry once")), r.data);
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000009", r: "DAILY_LIMIT", a: "att3" }] });

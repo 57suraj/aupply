@@ -11,9 +11,14 @@ import { z } from "zod";
 // Enums (mirror DB CHECK constraints)
 // ---------------------------------------------------------------------------
 
+/** saved: a strong match Aupply cannot apply to (not Easy Apply), kept for the user to apply
+    to by hand from the dashboard. */
 export const APPLICATION_STATUSES = [
-  "discovered", "lead", "skipped", "parked", "applied", "unconfirmed", "failed", "closed",
+  "discovered", "lead", "saved", "skipped", "parked", "applied", "unconfirmed", "failed", "closed",
 ] as const;
+
+/** Who submitted an application: an engine or Claude, or the user by hand. */
+export const APPLIED_BY = ["aupply", "user"] as const;
 
 export const APPLICATION_STAGES = [
   "none", "acknowledged", "screening", "assessment", "interview",
@@ -218,6 +223,7 @@ export const ApplicationFields = z.object({
   status: z.enum(APPLICATION_STATUSES),
   status_reason: optionalText(2000),
   applied_at: isoDateTime.nullable().optional(),
+  applied_by: z.enum(APPLIED_BY).nullable().optional(),
   match_score: z.number().min(0).max(100).nullable().optional(),
   resume_id: z.string().uuid().nullable().optional(),
   run_id: z.string().uuid().nullable().optional(),
@@ -241,6 +247,8 @@ export const ApplicationListQuery = z.object({
   since: isoDateTime.optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
+  /** created: newest record first; applied: most recent submission first (the tracker). */
+  sort: z.enum(["created", "applied"]).default("created"),
 });
 export type ApplicationListQuery = z.infer<typeof ApplicationListQuery>;
 

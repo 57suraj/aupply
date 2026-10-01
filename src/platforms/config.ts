@@ -142,7 +142,12 @@ export function answerPack(d: UserData, overrides?: Record<string, string>, save
     keyed,
     saved,
     overrides: Object.entries(overrides ?? {}).slice(0, 50),
-    policy: { tech: rules.tech_questions === "skills" ? "skills" : "always_yes" },
+    // Technology questions: Yes for the user's skills and anything learnable next to them, No for
+    // a far technology (strict mode "skills": Yes for their skills only, anything else asked).
+    policy: {
+      tech: rules.tech_questions === "skills" ? "skills" : "adjacent",
+      far: farStack(p.skills).map((t) => `(?:${t.q ?? t.re})`).join("|") || null,
+    },
   };
 }
 
@@ -163,11 +168,13 @@ export function compileTerms(terms: (string | null | undefined)[]): string | nul
 
 const normSkill = (s: string) => s.toLowerCase().replace(/[^a-z0-9+#]+/g, " ").trim();
 
-/** Main technologies the user does not list: the JD stack check asks about these. */
-export function missingStack(skills: string[]): [string, string][] {
+/** Main technologies the user has no foothold in (knowledge.ts STACK_VOCAB): the draft's stack
+    check asks about jobs that name one, and the form answers No / 0 years for them. With no
+    skills listed nothing is far: every answer stays Yes rather than No. */
+export function farStack(skills: string[]) {
   if (!skills.length) return [];
   const have = new Set(skills.map(normSkill));
-  return STACK_VOCAB.filter((t) => !t.aliases.some((a) => have.has(normSkill(a)))).map((t) => [t.name, t.re]);
+  return STACK_VOCAB.filter((t) => !t.aliases.some((a) => have.has(normSkill(a))));
 }
 
 const slugTerm = (t: string) =>
@@ -212,7 +219,7 @@ export function screening(d: UserData, platform: ScriptedPlatform, li: { within?
       location: profile.location_country ?? "India",
       geoId: LINKEDIN_GEO_IDS[(profile.location_country ?? "india").toLowerCase()] ?? null,
       agg: compileTerms(LINKEDIN_AGGREGATORS),
-      stack: missingStack(profile.skills),
+      stack: farStack(profile.skills).map((t) => [t.name, t.re]),
       jdExclude: compileTerms(Array.isArray(rules.jd_exclude_keywords) ? rules.jd_exclude_keywords : []),
       skipMidSenior: rules.skip_mid_senior_without_years !== false,
       target: Number(rules.linkedin?.draft_target) || 40,
