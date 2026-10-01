@@ -83,17 +83,17 @@ function educationFacts(educations: Education[]) {
 }
 
 /** The number as a phone field with its own country selector wants it: digits without the
-    country code. A live run (30 Sep) typed "+91 7680049641" into LinkedIn's field, and the
-    form's numeric repair then glued the code on ("917680049641"), so every job stalled. */
+    country code. A live run (30 Sep) typed "+91 98765 43210" into LinkedIn's field, and the
+    form's numeric repair then glued the code on ("919876543210"), so every job stalled. */
 export function nationalNumber(phone: string | null | undefined, country?: string | null): string | null {
   const raw = (phone ?? "").trim();
   const digits = raw.replace(/\D/g, "");
   if (!digits) return null;
-  // "+91 76800 49641", "+91-7680049641", "0091 7680049641", "+1 (555) 123-4567": a code set off from the number.
+  // "+91 98765 43210", "+91-9876543210", "0091 9876543210", "+1 (555) 123-4567": a code set off from the number.
   const set = raw.match(/^(?:\+|00)\s*(\d{1,3})[\s\-.()]+(\d[\d\s\-.()]*)$/);
   if (set) return set[2].replace(/\D/g, "");
   if (/^(?:\+|00)/.test(raw)) {
-    // "+917680049641": no separator. India is the v1 market: 91 and ten digits. Other codes are left as typed.
+    // "+919876543210": no separator. India is the v1 market: 91 and ten digits. Other codes are left as typed.
     return /^91\d{10}$/.test(digits.replace(/^00/, "")) ? digits.replace(/^00/, "").slice(2) : digits;
   }
   if (/^india$/i.test(country ?? "") && /^91\d{10}$/.test(digits)) return digits.slice(2);
