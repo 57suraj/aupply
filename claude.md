@@ -204,6 +204,10 @@ everywhere:
   a live test. The server answers a call to an unknown tool with a message saying so
   (`staleToolCall` in `src/mcp/server.ts`), and the instructions forbid clicking through
   job boards by hand and screenshot verification.
+- A chat drafts only when a platform's queue is low (`QUEUE_ENOUGH` in `src/services/sessions.ts`):
+  start_session's `next` sends a healthy queue straight to apply. Drafting means loading the draft
+  engine and sweeping the platform, and a fresh LinkedIn page already costs about 78KB of code per
+  chat (draft 20KB in 2 answers, apply 58KB in 7); `load_engine` reports `answers_left`.
 - Server instructions (`INSTRUCTIONS` in `src/mcp/server.ts`) stay under 2000 characters:
   Claude Code cuts them at 2048 (30 Sep: a 3.6KB text stopped mid-sentence and lost the rate-limit
   rules), so the rules that matter come first and details travel in tool responses. e2e checks it.
@@ -247,9 +251,11 @@ everywhere:
 - The frontend uses the legacy anon JWT key; can move to the `sb_publishable_` key.
 - Automation: India only for v1 is assumed, not confirmed (`docs/automation-tools.md`
   section 15).
-- The engine source is in the public repo `57suraj/aupply` (modules and `generated.ts`),
-  which undoes the delivery guard above. Make the repo private, or move the engine to a
-  private one, before relying on it; history already holds it.
+- Repo visibility (decided 1 Oct): `57suraj/aupply` stays public until the MCP is made
+  public, because nobody knows about it yet, and goes private at that launch. It holds the
+  engine source and `generated.ts`, and history holds a phone number from a live run
+  (commit `ba3949f`), so until then treat everything in it as readable by anyone and keep
+  personal data out of code, comments, docs and commits.
 - Live test of the automation tools in the user's browser. The Naukri and Wellfound
   engines are ports of the 16 Sep scripts; the newer copies (28 Sep Wellfound, Naukri
   `answer()` patches, Indeed v2) exist only in the Claude project "apply".

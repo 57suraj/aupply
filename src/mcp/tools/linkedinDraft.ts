@@ -58,7 +58,7 @@ export function registerLinkedinDraft(server: McpServer): void {
           cap_left: cap.left,
           open: LINKEDIN_TRACKER,
           steps: [
-            `Open ${LINKEDIN_TRACKER} (stay if already there) and keep this tab for every step below.`,
+            `Open ${LINKEDIN_TRACKER} (stay if already there; a LinkedIn tab left open from earlier may still hold the engine) and keep this tab for every step below.`,
             "Load the engine (load_rule). It stays loaded while this page stays open.",
             "Run __aupply.sweep(), then await __aupply.wait(35000) until a 'swept' item with done:1 arrives. The ids come in several 'swept' items before it: collect the ids of all of them, and keep the tracker of the done:1 item.",
             "Call check_applied with platform 'linkedin' and external_ids = those ids.",

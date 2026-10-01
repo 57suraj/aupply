@@ -270,5 +270,21 @@ export function planLoad(b: EngineBuild, page: PageState, limits: { modules: num
   return { ready: false, batch, bytes, left: todo.length - batch.length };
 }
 
+/** How many answers this page needs in all, so Claude knows the load is bounded and how far along it is. */
+export function answersNeeded(b: EngineBuild, page: PageState, limits: { modules: number; total: number }): number {
+  const st: PageState = { m: { ...page.m }, c: page.c, e: page.e };
+  let n = 0;
+  for (; n < 40; n++) {
+    const plan = planLoad(b, st, limits);
+    if (plan.ready) break;
+    for (const p of plan.batch) {
+      if (p.kind === "module") st.m[p.name] = MODULES[p.name as keyof typeof MODULES].hash;
+      else if (p.kind === "config") st.c = p === b.config[b.config.length - 1] ? b.tag : `${b.tag}_${b.config.indexOf(p) + 1}`;
+      else st.e = b.tag;
+    }
+  }
+  return n;
+}
+
 /** Everything the engine is made of, for the delivery meter. */
 export const fullSize = (b: EngineBuild) => [...b.modules, ...b.config, b.boot].reduce((s, p) => s + p.code.length, 0);

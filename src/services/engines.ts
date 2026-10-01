@@ -15,7 +15,7 @@
 
 import { AppError } from "../lib/errors.js";
 import {
-  buildEngine, engineVersion, fullSize, isEngineName, parsePage, planLoad,
+  answersNeeded, buildEngine, engineVersion, fullSize, isEngineName, parsePage, planLoad,
   type EngineName, type Part,
 } from "../engines/index.js";
 import { activeBlock, getState, mergeState } from "./automation.js";
@@ -78,7 +78,9 @@ export async function loadEngine(userId: string, engineId: string, page: string 
   if (stale) return done({ stale: true, next: "This engine id is out of date. Call the platform tool again and use the new `engine` it returns." });
 
   const b = buildEngine(name, st.cfg);
-  const plan = planLoad(b, parsePage(page), { modules: BATCH_MODULE_BYTES, total: BATCH_TOTAL_BYTES });
+  const limits = { modules: BATCH_MODULE_BYTES, total: BATCH_TOTAL_BYTES };
+  const state = parsePage(page);
+  const plan = planLoad(b, state, limits);
   if (plan.ready) return done({ ready: true, next: "The engine is loaded in this page. Continue with the steps." });
 
   const day = new Date().toISOString().slice(0, 10);
@@ -94,7 +96,7 @@ export async function loadEngine(userId: string, engineId: string, page: string 
     data: {
       engine: engineId,
       blocks: plan.batch.map((p) => p.name),
-      ...(plan.left ? { more: plan.left } : {}),
+      ...(plan.left ? { more: plan.left, answers_left: answersNeeded(b, state, limits) - 1 } : {}),
       next: plan.left
         ? "Run each block below as its own JavaScript call, in this order, exactly as written. Then call load_engine again with engine and page = the answer of the last block. " + FAILURE
         : "Run each block below as its own JavaScript call, in this order, exactly as written. The last block (boot) answers {ok:true,...} when the engine is ready. If it answers RUNNING, a script is live in this page: wait for it to finish first. If it answers anything else, run loaded_check and call load_engine once more with its answer; if that fails too, stop and tell the user the exact answer. " + FAILURE,

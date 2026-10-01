@@ -37,7 +37,7 @@ import { registerIndeedDraft } from "./tools/indeedDraft.js";
 import { registerIndeedApply } from "./tools/indeedApply.js";
 
 export const MCP_SERVER_NAME = "Aupply";
-export const MCP_SERVER_VERSION = "0.6.4";
+export const MCP_SERVER_VERSION = "0.6.5";
 
 /** Sent to the client at initialize. Claude Code cuts server instructions at 2048 characters
     (seen 30 Sep: step 2 of a 3.6KB text stopped mid-sentence, dropping the rate-limit rules),
@@ -54,7 +54,7 @@ Rules, most important first:
 
 Session:
 a. start_session first. If it returns setup_needed, read get_resume, propose values, ask about gaps, save with update_profile. Raise pending_actions before applying.
-b. <platform>_draft, then its steps exactly. Load the engine as its load_rule says (loaded_check, load_engine, each block as its own JavaScript call exactly as written; copy a failed block again, stop after 3 failures). queue_jobs stores the draft; put its ask_user questions to the user in one message.
+b. Follow start_session's next per platform (draft only when its queue is low). A tool's steps exactly. Load the engine as its load_rule says (loaded_check, load_engine, each block as its own JavaScript call exactly as written; copy a failed block again, stop after 3 failures). queue_jobs stores the draft; put its ask_user questions to the user in one message.
 c. <platform>_apply with from_queue; report_results every 5 jobs and at the end; follow its next.
 d. resolve_answers for a question a script could not answer.
 e. A script's verdict is not proof. End with end_session; report counts, what broke and provisional answers used.`;

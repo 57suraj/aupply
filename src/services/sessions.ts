@@ -18,6 +18,9 @@ const db = () => getSupabaseClient();
 type Meta = Record<string, any>;
 
 const QUEUE_HOURS: Record<ScriptedPlatform, number> = { linkedin: 24, naukri: 72, wellfound: 168, indeed: 72 };
+/** Queued jobs that are enough to apply from: a chat does not re-draft (the draft engine is code to load and
+    requests to the platform) until the queue runs low. */
+const QUEUE_ENOUGH: Record<ScriptedPlatform, number> = { linkedin: 10, naukri: 3, wellfound: 3, indeed: 3 };
 
 const HOW_TO_CONFIRM: Record<string, string> = {
   indeed: "The user submits the CAPTCHA themselves: ask which of these they sent, then log_application status applied for those.",
@@ -123,7 +126,14 @@ export async function startSession(userId: string, input: { client?: string; pla
       ? ["Some drafted jobs want a technology the user does not list (platforms.<platform>.ask_user): ask the user in one message whether to apply to each, then pass their answers to queue_jobs (platform, decisions) so the kept ones join the queue."]
       : []),
     ...(state.naukri?.refresh_due ? ["Run naukri_refresh_profile once today."] : []),
-    "Then per platform: <platform>_draft, queue_jobs, <platform>_apply with from_queue, report_results. End with end_session.",
+    ...platforms.map((p) =>
+      state[p].blocked
+        ? `${p}: blocked, leave it.`
+        : state[p].queued >= QUEUE_ENOUGH[p]
+          ? `${p}: ${state[p].queued} jobs are queued, so go straight to ${p}_apply with from_queue; draft again only when the queue runs low or the user asks.`
+          : `${p}: ${p}_draft, queue_jobs, then ${p}_apply with from_queue.`
+    ),
+    "report_results as you go. End with end_session.",
   ];
   return {
     run_id: run.id,

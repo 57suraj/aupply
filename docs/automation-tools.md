@@ -817,7 +817,7 @@ src/mcp/tools/                 one file per tool, as today (load_engine is how c
 - **The engine passes through the user's Claude and browser when it is used.** Delivery
   in pieces, metering and the instruction not to show the code limit exposure; they
   cannot hide code that has to run in the user's browser. The engine source is also in
-  the public repo today (see Open decisions in `CLAUDE.md`).
+  the public repo until the MCP launches (see Open decisions in `CLAUDE.md`).
 
 ## 13. Build order and sources
 
@@ -901,4 +901,5 @@ Settled 30 Sep 2026:
 Still open:
 - India only for v1 (location ids, Naukri)? Assumed yes.
 - Engine exposure through the repo: `src/engines/src/modules` and `generated.ts` are in
-  the public repo 57suraj/aupply. Delivery guards mean little while that is public.
+  the public repo 57suraj/aupply. Decided 1 Oct: it stays public until the MCP is made
+  public, then goes private. Delivery guards mean little until then.

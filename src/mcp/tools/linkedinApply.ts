@@ -58,7 +58,7 @@ export function registerLinkedinApply(server: McpServer): void {
           open: LINKEDIN_TRACKER,
           code: [{ name: "run", code: runQueue }],
           steps: [
-            `Open ${LINKEDIN_TRACKER} (stay if already there, for example right after a draft).`,
+            `Open ${LINKEDIN_TRACKER} (stay if already there, for example right after a draft, or in a LinkedIn tab left open from earlier that may still hold the engine).`,
             "Load the engine (load_rule). Right after a draft in this page only the apply parts are missing: load_engine sends just those.",
             "Run the `run` block (the queue) as one JavaScript call, copied exactly. It answers 'started'; CORRUPT_QUEUE means copy it again exactly.",
             "Poll await __aupply.wait(35000). Collect the `new` items; call report_results (platform 'linkedin', engine, results) every 5 results, whenever phase leaves 'applying', and at the end with tracker = the status's tracker.",

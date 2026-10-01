@@ -13,7 +13,9 @@ import { Reply } from "../mcp/toolkit.js";
     improvising by hand (clicking through the job list) and screenshotting to verify. */
 const ONLY_THE_ENGINE =
   "Only the engine applies: do not open job lists, click jobs or fill forms yourself, and do not take screenshots to verify its " +
-  "work (its answers are the record) unless a step or rule here asks for one.";
+  "work (its answers are the record) unless a step or rule here asks for one. Loading it takes several load_engine answers " +
+  "(the LinkedIn apply engine about seven): keep going until it is ready, never skip it to save tokens, and never suggest the " +
+  "user apply by hand instead. If a LinkedIn tab from earlier is still open, use it: the engine may still be loaded there.";
 
 /** Seen 30 Sep: waits timed out at 45s while a draft ran, because Chrome throttles the
     timers of a hidden tab (the window behind another one, or another tab in front). */
