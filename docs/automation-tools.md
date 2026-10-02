@@ -670,7 +670,7 @@ how to pick an option, and whether it may ever be inferred.
 | education | `education.degree`, `.major`, `.school`, `.dates`, `.grade`, `.grade_12`, `.grade_10`; `education.has_degree` compares the level asked about (bachelor's, master's, doctorate; the lowest when a question names several) with the user's own degree: Yes at that level or above, No below it, asked when the user's degree has no recognisable level |
 | history | `former_employee` (No), `referred` (No), `non_compete` (No) |
 | long form | `pitch.summary`, `cover_note`, `why_seeking`, `skills_text`, `projects_text` |
-| universal, no user value | source ("how did you hear": the platform's name), EEO (decline), privacy consent (tick), marketing and "follow company" (never tick), English proficiency, graded scales (second positive option; when several start with "Yes", the last) |
+| universal, no user value | source ("how did you hear": the platform's name), EEO (decline), consent (the user's rule, 2 Oct: the user asked Claude to apply, so a privacy notice, terms or data-processing consent is accepted on checkboxes, radios and dropdowns; the saved answer `consent` = No refuses), marketing, SMS and "follow company" (never accepted), English proficiency, graded scales (second positive option; when several start with "Yes", the last) |
 
 **Protected keys** are never inferred, and a required one with no value skips the job:
 references, government ids, date of birth, full address or postal code, marks and GPA,
@@ -733,7 +733,9 @@ question, inside any application (engine or by hand):
   license, vehicle or laptop is asked, never assumed.
 - LinkedIn's years fields take whole numbers only ("Invalid input" for 0.5, 1 Oct): the
   form filler rounds years to the nearest whole number, and `repair()` rounds any decimal
-  a numeric field refuses.
+  a numeric field refuses. The user's rule (2 Oct): years are whole everywhere, so 0.5 is 1
+  in number fields, in dropdown bands and in "N+ years" questions (`years` in `res_base`,
+  and `resolve_answers` on the server); months stay exact.
 - `linkedin_apply` states the rule to Claude in one sentence and says it is the user's
   decision, so a chat does not pause over it.
 - Not done yet: "Do you have 3+ years with React?" still gets Yes for a user with fewer

@@ -416,6 +416,16 @@ async function main() {
     ],
   });
   const ra = r.data || [];
+  // 2 Oct: consent that comes with an application is accepted; marketing is not.
+  const consentRes = await tool(accessA, "resolve_answers", {
+    questions: [
+      { q: "Read our Privacy Notice", options: ["Yes", "No"] },
+      { q: "I agree to the Terms and Conditions", options: ["I do not agree", "I agree"] },
+      { q: "I consent to receive marketing emails", options: ["Yes", "No"] },
+    ],
+  });
+  const cr = consentRes.data || [];
+  expect("resolve_answers accepts consent, but not marketing", !consentRes.isError && cr[0]?.option === "Yes" && cr[1]?.option === "I agree" && cr[2]?.option !== "Yes", cr);
   expect(
     "resolve_answers: saved, option, protected, similar, unknown",
     !r.isError && ra[0]?.source === "saved" && ra[0]?.status === "confirmed" && ra[1]?.option === "Yes" && ra[1]?.status === "provisional" &&

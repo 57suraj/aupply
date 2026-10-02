@@ -273,6 +273,10 @@ for (const [name, e] of Object.entries(engines)) {
       [["Do you have a Bachelor's or Master's degree in Computer Science?"], "education.has_degree", "Yes"],
       [["Do you have a postgraduate degree?"], "education.has_degree", "No"],
       [["Do you hold a degree in engineering?"], "education.has_degree", "Yes"],
+      // 2 Oct: consent that comes with an application is accepted (a "Read our Privacy Notice" Yes/No radio stalled a run).
+      [["Read our Privacy Notice"], "consent", "Yes"],
+      [["I agree to the Terms and Conditions"], "consent", "Yes"],
+      [["Do you consent to the processing of your personal data?"], "consent", "Yes"],
     ];
     for (const [args, k, v] of expectations) {
       const a = X.R.A(...args);
@@ -281,6 +285,28 @@ for (const [name, e] of Object.entries(engines)) {
     // A saved answer ("30 days") that matches no option falls back to the rule's own pick (2 Oct).
     const noticeOpt = X.R.pickOpt(X.R.A("What is your notice period?"), ["Select an option", "0-15 Days", "1 Month", "2 Months"]);
     if (noticeOpt !== 2) fail(`${name}: the saved notice period picked option ${noticeOpt}, not "1 Month"`);
+    // Consent: Yes or "I agree" on radios and dropdowns; marketing is never consent; the saved answer `consent` = No refuses.
+    const consentPick = (R, q, opts) => R.pickOpt(R.A(q), opts);
+    if (consentPick(X.R, "Read our Privacy Notice", ["Yes", "No"]) !== 0) fail(`${name}: a privacy notice radio did not pick Yes`);
+    if (consentPick(X.R, "Terms and conditions", ["I do not agree", "I agree"]) !== 1) fail(`${name}: a terms dropdown did not pick "I agree"`);
+    for (const q of ["I consent to receive marketing emails", "Subscribe to the newsletter"]) {
+      const a = X.R.A(q);
+      if (a && a.k === "consent") fail(`${name}: ${JSON.stringify(q)} was answered as consent`);
+    }
+    // A user with 0.5 years (their rule, 2 Oct): 1 in number fields, in dropdown bands and in "N+ years" questions.
+    const resolverWith = (patch) => {
+      const Y = { CFG: { ...cfg, ...patch, me: { ...cfg.me, ...(patch.me || {}) } }, SOURCE: e.source };
+      for (const n of e.modules) if (/^(core|pay|res_)/.test(n)) Object.assign(Y, page.window.__ap.m[n](Y));
+      return Y.R;
+    };
+    const refuses = resolverWith({ keyed: { ...(cfg.keyed || {}), consent: "No" } });
+    if (consentPick(refuses, "Read our Privacy Notice", ["Yes", "No"]) !== 1) fail(`${name}: the saved answer consent = No did not refuse`);
+    const half = resolverWith({ me: { years: 0.5 } });
+    const yearsA = half.A("How many years of work experience do you have?");
+    if (!yearsA || yearsA.v !== "1") fail(`${name}: 0.5 years answered ${JSON.stringify(yearsA && yearsA.v)} in a number field, not 1`);
+    if (half.pickOpt(half.A("How many years of experience do you have?"), ["0-1", "1-2", "3+"]) !== 1) fail(`${name}: 0.5 years did not pick the 1-2 band`);
+    const one = half.A("Do you have 1+ years of professional experience?"), two = half.A("Do you have 2+ years of professional experience?");
+    if (!one || one.v !== "Yes" || !two || two.v !== "No") fail(`${name}: 0.5 years answered ${JSON.stringify([one && one.v, two && two.v])} to 1+ and 2+, not Yes and No`);
   }
 
   // No status answer may pass the Chrome extension's 1000-character cut (live run 1 Oct):

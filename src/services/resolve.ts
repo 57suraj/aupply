@@ -34,7 +34,7 @@ export async function resolveAnswers(userId: string, input: { questions: Questio
   const R = makeResolver(answerPack(d, undefined, 1000), source);
   const byKey = new Map(d.answers.filter((a) => a.key).map((a) => [a.key as string, a]));
   const byQuestion = new Map(d.answers.map((a) => [R.norm(a.question), a]));
-  const years = d.profile.years_experience;
+  const years = d.profile.years_experience == null ? null : Math.round(d.profile.years_experience); // whole years, as the engine (res_base)
 
   const pick = (a: ResolverAnswer | null, item: QuestionIn) => {
     if (!item.options?.length) return {};

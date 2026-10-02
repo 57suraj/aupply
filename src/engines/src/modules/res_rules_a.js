@@ -5,7 +5,7 @@
    question wrongly in a live application (see docs/automation-tools.md). */
 function res_rules_a(X) {
   'use strict';
-  const { ME, KEYED, norm, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, years, months, lakhs, techClaim, techYes, titleWords } = X;
+  const { ME, KEYED, norm, has, val, saved, esc, SOURCE, SRC, EEO, PROTECTED, NEVERTICK, years, months, lakhs, techClaim, techYes, titleWords } = X;
 
   // "Do you have 2+ years of software development experience?" is a yes/no on the user's
   // own total years, not a technology question (1 Oct: answered Yes for a user with 0.5).
@@ -17,6 +17,9 @@ function res_rules_a(X) {
   const CO_STOP = /^(the|inc|ltd|llc|llp|pvt|private|limited|technologies|technology|tech|solutions|services|systems|software|group|india|global|corp|corporation|company|labs)$/;
   const coRe = (co) => { const w = norm(co).split(' ').find((x) => x.length > 2 && !CO_STOP.test(x)); return w ? new RegExp('\\b' + esc(w) + '\\b') : null; };
 
+  const CONSENT_Q = /\bconsent|privacy (notice|policy|statement)|terms (and |& )?conditions|terms of (use|service)|data (processing|protection|privacy)|\bgdpr\b|\bi (agree|accept|acknowledge)\b/;
+  const ACCEPT = /^(yes|i agree|agree|i accept|accept|i consent|consent|i acknowledge|acknowledge)\b/i;
+
   // co: the employer's name when the caller knows it.
   const rulesA = (s, co) => {
     let m;
@@ -27,8 +30,12 @@ function res_rules_a(X) {
     for (const [re, key] of PROTECTED) if (re.test(s)) return has(KEYED[key]) ? val(key, KEYED[key]) : { k: 'protected', v: null, protected: true, what: key };
     if (SRC.test(s)) return val('source', SOURCE, { p: new RegExp(esc(SOURCE), 'i') });
     if (EEO.test(s)) return val('eeo', saved('eeo', null), { eeo: true });
+    // Consent that comes with an application (privacy notice, terms, data processing) is accepted: the user asked Claude to
+    // apply (2 Oct; a "Read our Privacy Notice" Yes/No radio stalled a run). The saved answer `consent` = No refuses.
+    // Marketing, SMS and "follow company" are never accepted.
+    if (CONSENT_Q.test(s) && !NEVERTICK.test(s)) { const v = saved('consent', 'Yes'); return val('consent', v, { yn: v === 'No' ? 'no' : 'yes', ...(v === 'No' ? {} : { p: ACCEPT }) }); }
     m = s.match(THRESHOLD);
-    if (m) { const ok = ME.years == null ? null : ME.years >= parseFloat(m[1]); return val('experience.years_at_least', ok == null ? null : ok ? 'Yes' : 'No', { yn: ok == null ? null : ok ? 'yes' : 'no' }); }
+    if (m) { const ok = years == null ? null : +years >= parseFloat(m[1]); return val('experience.years_at_least', ok == null ? null : ok ? 'Yes' : 'No', { yn: ok == null ? null : ok ? 'yes' : 'no' }); }
     // Far technologies and industry domains (res_base), before the
     // years rules below would answer them with the user's total.
     const t = techClaim(s);

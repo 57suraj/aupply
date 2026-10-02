@@ -184,6 +184,11 @@ everywhere:
   `src/platforms/knowledge.ts`, sent as `policy.far`); industry domains ("FinTech
   experience") are asked once and saved (`domain.<name>`). The same far list holds jobs
   at draft time for the user's decision. Keep this cheap: no per-framework vocabulary.
+- Consent and years (the user, 2 Oct): consent that comes with an application (privacy
+  notice, terms, data processing) is accepted on checkboxes, radios and dropdowns, because
+  the user asked Claude to apply; marketing, SMS and "follow company" never are
+  (`NEVERTICK` in `res_base`, one definition). Years are whole everywhere (0.5 is 1: number
+  fields, dropdown bands, "N+ years"); months stay exact. The technology policy stays as is.
 - One tool per platform per action (`linkedin_draft`, `linkedin_apply`, `naukri_*`,
   `wellfound_*`, `indeed_*`); shared tools for data (`check_applied`, `queue_jobs`,
   `report_results`, `resolve_answers`, `update_profile`, `start_session`, `end_session`).

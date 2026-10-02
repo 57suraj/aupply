@@ -4,9 +4,8 @@
    navigation, so the page, and the engine, stay alive for the whole queue. */
 function li_dom(X) {
   'use strict';
-  const { txt, cut } = X;
+  const { txt, cut, NEVERTICK } = X;
   const CONSENT = /consent|i agree|agree to|privacy notice|privacy policy|acknowledge|i understand|declare|certify|attest|terms and conditions|data processing|gdpr/i;
-  const NEVERTICK = /marketing|promotion|newsletter|text message|\bsms\b|notify me|updates about|follow|subscribe/i;
 
   const $$ = (sel, root) => [...(root || document).querySelectorAll(sel)];
   const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
@@ -115,5 +114,5 @@ function li_dom(X) {
   const alreadyApplied = () => /\byou applied\b|\bapplied \d+ (second|minute|hour|day|week|month)s? ago\b|application submitted/i.test(document.body.innerText);
   const pageTitle = () => { const p = (document.title || '').split('|').map((x) => x.trim()); return { t: cut(p[0], 70), co: cut(p[1], 40) }; };
 
-  return { CONSENT, NEVERTICK, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, applyControl, easy, closed, alreadyApplied, pageTitle };
+  return { CONSENT, $$, vis, navBtn, modal, lab, fields, optText, radios, progress, setVal, clickText, deepAll, sentTo, dismiss, limitHit, applyControl, easy, closed, alreadyApplied, pageTitle };
 }

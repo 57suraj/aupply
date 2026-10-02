@@ -14,8 +14,9 @@ function res_base(X) {
   const OVER = pairs(CFG.overrides);
   const SAVED = pairs(CFG.saved);
   const has = (x) => x !== null && x !== undefined && x !== '';
-  const fmt = (n) => (n == null ? null : String(Math.round(n * 100) / 100));
-  const years = fmt(ME.years);
+  // Whole years everywhere (the user's rule, 2 Oct): 0.5 is 1 in number fields, in dropdowns and in
+  // "N+ years" questions, so one fact reaches every form. Months stay exact.
+  const years = ME.years == null ? null : String(Math.round(ME.years));
   const months = ME.years == null ? null : String(Math.round(ME.years * 12));
   const lakhs = (n) => (n == null ? null : String(Math.round((n / 1e5) * 100) / 100));
   const skills = (ME.skills || []).map(norm).filter(Boolean);
@@ -24,6 +25,8 @@ function res_base(X) {
   const cityRe = [ME.city, ME.region].filter(Boolean).map((c) => esc(String(c).toLowerCase())).join('|');
   const namesCity = (s) => !!cityRe && new RegExp(cityRe).test(s);
   const saved = (k, dflt) => (has(KEYED[k]) ? KEYED[k] : dflt);
+  // Never accepted or ticked, whatever the form calls it: marketing, SMS and "follow company".
+  const NEVERTICK = /marketing|promotion|newsletter|text message|\bsms\b|notify me|updates about|follow|subscribe/i;
 
   const SRC = /how did you (hear|find|learn|come)|where did you (hear|find)|hear about (us|this|the|our)|referral source|source of (application|referral|hire)|how do you know (about )?us|which (channel|platform)/;
   const EEO = /gender|ethnic|\brace\b|veteran|disabilit|pronoun|self.?identif|marital|sexual orientation|hispanic|latino|military/;
@@ -126,5 +129,5 @@ function res_base(X) {
   };
   const titleWords = (t) => { const w = norm(t).split(' ').filter((x) => x.length > 2); return w.length ? new RegExp(w.map(esc).join('|'), 'i') : null; };
 
-  return { ME, KEYED, norm, OVER, SAVED, has, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, farTech, techYes, techClaim, band, numRange, daysBand, val, titleWords };
+  return { ME, KEYED, norm, OVER, SAVED, has, NEVERTICK, years, months, lakhs, namesCity, saved, SRC, EEO, PROTECTED, farTech, techYes, techClaim, band, numRange, daysBand, val, titleWords };
 }
