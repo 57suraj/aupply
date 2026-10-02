@@ -6,7 +6,11 @@
  * identity from the verified token in `extra.authInfo` (see toolkit.ts).
  */
 
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { normalizeObjectSchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+import { STALE_ADVICE } from "./stale.js";
 
 import { registerGetCandidateProfile } from "./tools/getCandidateProfile.js";
 import { registerGetResume } from "./tools/getResume.js";
@@ -62,14 +66,48 @@ e. A script's verdict is not proof. End with end_session; report counts, what br
 /** The tool names this server registers, filled in as servers are built. */
 const TOOL_NAMES = new Set<string>();
 
+type ToolConfig = { title?: string; description?: string; inputSchema?: unknown; annotations?: unknown };
+
+/** What start_session's `tv` carries while the version is being computed: the version covers
+    that parameter's description, so it cannot contain itself. */
+const TV_PLACEHOLDER = "{tv}";
+let toolsVersionCache: string | null = null;
+
+/**
+ * The version of the tool list and instructions this deploy hands a client: a hash of the
+ * instructions and of every tool's name, title, description, input schema and annotations,
+ * so any change a chat would see changes it. start_session's `tv` parameter tells Claude to
+ * pass it back; a chat that loaded the tools before the change passes the old one and is
+ * told to reconnect (startSession.ts). Tool names alone were not enough: a tool that keeps
+ * its name but changes its inputs or rules left an old chat working from the old text.
+ */
+export function toolsVersion(): string {
+  if (toolsVersionCache) return toolsVersionCache;
+  const { tools } = build(TV_PLACEHOLDER);
+  const list = tools
+    .map(([name, c]) => {
+      const obj = c.inputSchema ? normalizeObjectSchema(c.inputSchema as never) : undefined;
+      return [name, c.title ?? null, c.description ?? null, obj ? toJsonSchemaCompat(obj, { strictUnions: true, pipeStrategy: "input" }) : null, c.annotations ?? null];
+    })
+    .sort((a, b) => (a[0]! < b[0]! ? -1 : 1));
+  toolsVersionCache = createHash("sha256").update(JSON.stringify([INSTRUCTIONS, list])).digest("hex").slice(0, 8);
+  return toolsVersionCache;
+}
+
 export function createMcpServer(): McpServer {
+  return build(toolsVersion()).server;
+}
+
+function build(tv: string): { server: McpServer; tools: [string, ToolConfig][] } {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
     { instructions: INSTRUCTIONS }
   );
+  const tools: [string, ToolConfig][] = [];
   const register = server.registerTool.bind(server) as (name: string, ...rest: unknown[]) => unknown;
   server.registerTool = ((name: string, ...rest: unknown[]) => {
     TOOL_NAMES.add(name);
+    tools.push([name, (rest[0] ?? {}) as ToolConfig]);
     return register(name, ...rest);
   }) as typeof server.registerTool;
 
@@ -84,7 +122,7 @@ export function createMcpServer(): McpServer {
   registerGetApplicationStats(server);
 
   // Write
-  registerStartSession(server);
+  registerStartSession(server, tv);
   registerEndSession(server);
   registerLogApplication(server);
   registerSaveAnswer(server);
@@ -106,7 +144,7 @@ export function createMcpServer(): McpServer {
   registerIndeedDraft(server);
   registerIndeedApply(server);
 
-  return server;
+  return { server, tools };
 }
 
 /**
@@ -132,8 +170,7 @@ export function staleToolCall(body: unknown) {
           type: "text" as const,
           text:
             `Aupply has no tool called "${name.slice(0, 60)}". Aupply's tools changed after this chat loaded them, so it holds an out-of-date copy of the tools and instructions. ` +
-            "Stop here and tell the user: reconnect the Aupply connector (Claude settings, Connectors, Aupply: disconnect, then connect again) and start a new chat. " +
-            "Until then do not apply to jobs or click through job boards by hand.",
+            STALE_ADVICE,
         },
       ],
     },

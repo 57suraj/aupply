@@ -214,7 +214,15 @@ everywhere:
   new flow ran). After changing tools: reconnect the connector and start a new chat before
   a live test. The server answers a call to an unknown tool with a message saying so
   (`staleToolCall` in `src/mcp/server.ts`), and the instructions forbid clicking through
-  job boards by hand and screenshot verification.
+  job boards by hand and screenshot verification. A tool that keeps its name but changes
+  its text or inputs is caught by the tools version (`toolsVersion()`, 8 hex characters: a
+  hash of the instructions and every tool's name, title, description, input schema and
+  annotations, so no one bumps it by hand): the `tv` parameter of `start_session` carries it
+  in its description, Claude passes it back, and a chat that read older tools is refused
+  there with the reconnect advice (`src/mcp/stale.ts`). A call with no `tv` goes ahead.
+  The engine has its own check: the version is a hash of its modules and boot, `loaded_check`
+  compares it and the config hash in the page, and `load_engine` sends only the modules
+  that differ, so an older cached engine is upgraded and its cache replaced (e2e covers it).
 - How recent LinkedIn jobs are is a session setting: the user says it at the start and
   `start_session` takes `posted_within` (`1h`, `24h`, `1w`; stored on the run). The server
   turns it into the draft's searches (`linkedinSearches`), and the LinkedIn queue holds

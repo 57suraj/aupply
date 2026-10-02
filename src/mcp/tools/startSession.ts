@@ -8,10 +8,14 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { POSTED_WITHIN } from "../../domain/schemas.js";
+import { AppError } from "../../lib/errors.js";
 import { startSession } from "../../services/sessions.js";
+import { STALE_ADVICE } from "../stale.js";
 import { WRITE, run } from "../toolkit.js";
 
-export function registerStartSession(server: McpServer): void {
+/** tv: this deploy's tools version (toolsVersion in server.ts), written into the `tv` parameter's
+    description. A chat that read the tools before a change passes the old one back. */
+export function registerStartSession(server: McpServer, tv: string): void {
   server.registerTool(
     "start_session",
     {
@@ -32,9 +36,19 @@ export function registerStartSession(server: McpServer): void {
             "LinkedIn: how recent the jobs should be, as the user said at the start: last hour (1h), 24 hours (24h) or week " +
               "(1w). Holds for the whole session: the queue and the draft searches follow it. Default: the user's preference, else 24h."
           ),
+        tv: z.string().max(40).optional().describe(`Always pass "${tv}", exactly: the version of Aupply's tools and instructions this chat read.`),
       },
       annotations: WRITE,
     },
-    async (args, extra) => run(extra, (userId) => startSession(userId, args))
+    async (args, extra) =>
+      run(extra, async (userId) => {
+        // No tv (an older chat, or a client that left it out) goes ahead; a different one is a chat
+        // that loaded the tools before they changed (30 Sep: it called tools that no longer existed).
+        if (args.tv !== undefined && args.tv !== tv) {
+          throw new AppError(`This chat holds an out-of-date copy of Aupply's tools and instructions (tv ${args.tv.slice(0, 20)}, current ${tv}), so no session was started. ${STALE_ADVICE}`);
+        }
+        const { tv: _tv, ...input } = args;
+        return startSession(userId, input);
+      })
   );
 }

@@ -334,6 +334,13 @@ async function main() {
   const gone = await mcp(accessA, "tools/call", { name: "log_run", arguments: {} });
   expect("a removed tool answers with how to recover, not a bare error", gone.status === 200 && gone.body?.result?.isError === true && /reconnect the Aupply connector/.test(gone.body.result.content?.[0]?.text ?? ""), gone.body);
 
+  // The tools version: start_session's tv carries it, so a chat that loaded the tools before a change is told to reconnect.
+  const tvOf = (l) => /"([0-9a-f]{8})"/.exec((l.body?.result?.tools || []).find((t) => t.name === "start_session")?.inputSchema?.properties?.tv?.description ?? "")?.[1];
+  const toolsV = tvOf(list);
+  expect("start_session's tv parameter carries an 8-character tools version, the same on every listing", Boolean(toolsV) && toolsV === tvOf(await mcp(accessA, "tools/list", {})), toolsV);
+  const oldChat = await tool(accessA, "start_session", { client: "e2e", tv: "00000000" });
+  expect("a start_session from a chat with other tools is refused with how to recover, and opens no run", oldChat.isError && /reconnect the Aupply connector/.test(String(oldChat.data)) && /out-of-date/.test(String(oldChat.data)), oldChat.data);
+
   let r = await tool(accessA, "get_pending_actions");
   expect("get_pending_actions (empty)", !r.isError && Array.isArray(r.data) && r.data.length === 0, r.data);
   r = await tool(accessA, "get_candidate_profile");
@@ -343,7 +350,7 @@ async function main() {
   r = await tool(accessA, "get_resume");
   expect("get_resume with none -> tool error", r.isError && /not found/i.test(String(r.data)), r.data);
 
-  const run = await tool(accessA, "start_session", { client: "e2e" });
+  const run = await tool(accessA, "start_session", { client: "e2e", tv: toolsV });
   expect("start_session opens a run with platform state and no mail searches", !run.isError && run.data.run_id && run.data.platforms?.linkedin?.cap_left === 35 && run.data.inbox_queries === undefined, run.data);
   const runId = run.data?.run_id;
   expect("start_session flags setup_needed on an empty profile", run.data?.setup_needed?.some((g) => g.startsWith("preferences.desired_roles")) && run.data.next?.[0]?.includes("update_profile"), run.data?.setup_needed);
@@ -637,6 +644,24 @@ async function main() {
     const later = stubPage();
     later.localStorage.setItem("__aupply_linkedin", cachedLi ?? "");
     expect("a new LinkedIn page restores the apply engine from its own cache and answers ok", Boolean(cachedLi) && vm.runInContext(blockWith(applyRes, "loaded_check"), later) === "ok", String(cachedLi).length);
+    // A cache left by an older deploy (another engine version, one module changed): the page does not say ok,
+    // the server sends only what differs, and the cache is replaced by the new engine.
+    const version = /^linkedin@([0-9a-f]+)\./.exec(applyRes.data.engine)?.[1] ?? "";
+    // The cache holds the config with its checksum: change the version inside the config, then recompute the checksum.
+    const oldVersion = "0".repeat(version.length);
+    const staleCache = String(cachedLi)
+      .split(version).join(oldVersion)
+      .replace(/a\.v\.li_main="[^"]*"/, 'a.v.li_main="0000000000"')
+      .replace(/window\.__apc=(.*);window\.__apk=-?\d+;/s, (_m, j) => `window.__apc=${JSON.stringify(JSON.parse(j))};window.__apk=${h31(JSON.stringify(JSON.parse(j)))};`);
+    const oldPage = stubPage();
+    oldPage.localStorage.setItem("__aupply_linkedin", staleCache);
+    const check = vm.runInContext(blockWith(applyRes, "loaded_check"), oldPage);
+    expect("a cache from an older engine version is restored but does not answer ok", Boolean(version) && staleCache !== cachedLi && staleCache.includes('a.v.li_main="0000000000"') && check !== "ok" && vm.runInContext("window.__aupply && window.__aupply.v", oldPage) === oldVersion, String(check).slice(0, 120));
+    const upgraded = await loadEngineIn(oldPage, applyRes, accessA);
+    expect("load_engine upgrades it with only what differs: the changed module, the config and the boot", upgraded.ready && upgraded.booted?.ok && upgraded.sent.includes("li_main") && upgraded.sent.at(-1) === "boot" && !upgraded.sent.some((n) => /^(core|pay|res_base|res_rules_a|res_rules_b|res_api|li_base|li_dom|li_fill|li_job)$/.test(n)), upgraded.sent);
+    const newerPage = stubPage();
+    newerPage.localStorage.setItem("__aupply_linkedin", oldPage.localStorage.getItem("__aupply_linkedin") ?? "");
+    expect("the upgrade replaced the old cache: a later page restores the current engine and answers ok", vm.runInContext("window.__aupply.v", oldPage) === version && vm.runInContext(blockWith(applyRes, "loaded_check"), newerPage) === "ok", vm.runInContext("window.__aupply.v", oldPage));
   }
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
   expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);
