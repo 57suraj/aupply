@@ -19,8 +19,9 @@ export function registerCheckApplied(server: McpServer): void {
       description:
         "Before any costly step on a batch of jobs, check which ones Aupply already knows for this user (applied, " +
         "skipped, queued, closed). Pass the platform and its job ids or links; ids are normalised, so a link and a " +
-        "bare id match. Returns new (never seen) and known ([id, status] pairs), plus companies already touched " +
-        "(matched case-insensitively across platforms). In a LinkedIn draft, pass the known ids to prescreen as skip.",
+        "bare id match. Returns known ([id, status] pairs) and companies already touched (matched " +
+        "case-insensitively across platforms). New (never seen) ids are listed for up to 10 ids; above that only " +
+        "new_count comes back. In a LinkedIn draft, pass the known ids to prescreen as skip.",
       inputSchema: {
         platform: z.string().optional().describe("e.g. linkedin. Omit to match job ids on any platform."),
         external_ids: z.array(z.string().max(500)).max(500).optional().describe("The platform's job ids or links."),
@@ -33,7 +34,13 @@ export function registerCheckApplied(server: McpServer): void {
         if (!external_ids?.length && !companies?.length) {
           throw new AppError("Pass external_ids and/or companies.");
         }
-        return checkExisting(userId, { platform: platform?.toLowerCase(), external_ids, companies });
+        const r = await checkExisting(userId, { platform: platform?.toLowerCase(), external_ids, companies });
+        // A draft sends 80+ ids and only needs the known ones back; echoing every new id costs tokens twice.
+        if (r.new.length > 10) {
+          const { new: fresh, ...rest } = r;
+          return { ...rest, new_count: fresh.length };
+        }
+        return r;
       })
   );
 }

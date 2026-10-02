@@ -617,6 +617,9 @@ async function main() {
   expect("start_session raises a stack decision left unanswered", !r.isError && r.data.platforms?.linkedin?.ask_user?.[0]?.id === "4471000002" && r.data.platforms.linkedin.ask_user[0].wants?.[0] === "Java" && r.data.next.some((n) => n.includes("ask_user")), r.data?.platforms);
   r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471000001", "urn:li:jobPosting:4471000003", "4471000009"] });
   expect("check_applied sees queued and skipped jobs", !r.isError && r.data.new?.length === 1 && r.data.known.length === 2, r.data);
+  // A draft sends dozens of ids and needs the known ones back: above 10 only the count of new ones comes back.
+  r = await tool(accessA, "check_applied", { platform: "linkedin", external_ids: ["4471000001", "4471000003", ...Array.from({ length: 12 }, (_, i) => String(4472000001 + i))] });
+  expect("check_applied above 10 ids returns new_count, not every new id, and still the known ones", !r.isError && r.data.new === undefined && r.data.new_count === 12 && r.data.known.length === 2, r.data);
   r = await tool(accessA, "linkedin_apply", { from_queue: true });
   const applyRes = r;
   const runBlock = blockWith(r, "run");

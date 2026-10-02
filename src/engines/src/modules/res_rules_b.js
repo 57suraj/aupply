@@ -56,7 +56,19 @@ function res_rules_b(X) {
     m = s.match(/(own|have) (a |an |your own )?(vehicle|car|bike|motorcycle|two.?wheeler|four.?wheeler|laptop)\b/);
     if (m) { const k = 'owns.' + m[3].replace(/\W/g, ''); const v = saved(k, null); return val(k, v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
     if (/certificat/.test(s)) return val('certifications', saved('certifications', null), { yn: has(KEYED.certifications) ? 'yes' : null });
-    if (/bachelor|degree|graduat|b\.?tech|education/.test(s)) return val('education.has_degree', ME.degree ? 'Yes' : null, { yn: 'yes' });
+    if (/bachelor|degree|graduat|b\.?tech|education/.test(s)) {
+      // A level question ("completed a Master's / Doctorate?") is Yes only when the user's own degree is that level or higher
+      // (2 Oct: a B.Tech was sent as Yes to Master's and Doctorate). Several levels in one question ("Bachelor's or Master's")
+      // need the lowest of them. The question names levels by explicit words only: "postgraduate" is not also a bachelor's.
+      if (!ME.degree) return val('education.has_degree', null, { yn: 'yes' });
+      const LV = [[3, /ph\.?\s?d|doctor/], [2, /master|post.?grad|\bm\.?\s?(tech|sc)\b|\bmba\b|\bmca\b/], [1, /bachelor|undergrad|\bb\.?\s?(tech|e|sc|com|a)\b|\bbca\b/]];
+      const levels = (t) => LV.filter((l) => l[1].test(t)).map((l) => l[0]);
+      const mine = String(ME.degree).toLowerCase();
+      const asked = levels(s), need = asked.length ? Math.min(...asked) : 1;
+      const have = Math.max(...levels(mine), /graduat|degree/.test(mine) ? 1 : 0);
+      const ok = have ? have >= need : need <= 1;
+      return val('education.has_degree', ok ? 'Yes' : have ? 'No' : null, { yn: ok ? 'yes' : 'no' });
+    }
     if (/relocat/.test(s)) return val('relocate', ME.relocate === false ? 'No' : 'Yes', { yn: ME.relocate === false ? 'no' : 'yes' });
     if (/have you (ever )?(worked|shipped|written|modell?ed|designed|built|used|implemented|integrated|deployed|owned|led|managed|contributed)/.test(s)) return techAns(s, 'Yes');
     if (/do you (use|write|code|build|work|ship|have)\b/.test(s)) return techAns(s, 'Yes');

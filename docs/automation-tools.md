@@ -279,8 +279,10 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
 **`check_applied`** (exists; changes)
 - Input: `platform`, `external_ids[]` (any form: ids, URLs, URNs), `companies?`.
-- Returns: `new` (canonical ids Aupply has never seen for this user and platform) and
-  `known` (canonical id → status), plus company matches for Wellfound.
+- Returns: `new` (canonical ids Aupply has never seen for this user and platform; for
+  more than 10 ids only `new_count`, since a draft needs the `known` ones back and a list of
+  every new id costs tokens twice) and `known` (canonical id → status), plus company
+  matches for Wellfound.
 - Canonicalises every id first (section 9), then one index lookup. This is the draft's
   "already applied?" step, run before anything costly such as a JD fetch.
 
@@ -665,7 +667,7 @@ how to pick an option, and whether it may ever be inferred.
 | availability | `notice.days` (bands; "Immediate" only when true), `start.earliest_date`, `start.immediately`, `shifts` |
 | location | `location.based_in` (truthful: "based in X, willing to relocate to Y"), open city questions ("Which city are you located in?") answer the city, `relocate`, `preferred_locations`; inline numbered options return the number |
 | eligibility | `work_auth.home`, `work_auth.us`, `sponsorship.home`, `sponsorship.us`, `passport`, `notice.serving` |
-| education | `education.degree`, `.major`, `.school`, `.dates`, `.grade`, `.grade_12`, `.grade_10` |
+| education | `education.degree`, `.major`, `.school`, `.dates`, `.grade`, `.grade_12`, `.grade_10`; `education.has_degree` compares the level asked about (bachelor's, master's, doctorate; the lowest when a question names several) with the user's own degree: Yes at that level or above, No below it, asked when the user's degree has no recognisable level |
 | history | `former_employee` (No), `referred` (No), `non_compete` (No) |
 | long form | `pitch.summary`, `cover_note`, `why_seeking`, `skills_text`, `projects_text` |
 | universal, no user value | source ("how did you hear": the platform's name), EEO (decline), privacy consent (tick), marketing and "follow company" (never tick), English proficiency, graded scales (second positive option; when several start with "Yes", the last) |
@@ -759,6 +761,13 @@ job-ad networks, slugs, location ids).
   `profile.skills`. A job naming one the user lacks goes to `ask_user` with what it wants
   and what the user has; the user keeps or drops it in one batch.
 - **Positives:** `desired_roles` and `include_keywords`, weighted into `match_score`.
+- **Title filter (LinkedIn):** LinkedIn's keyword search matches the whole posting, so "AI
+  developer" returned AI/ML Trainer, Quantitative Researcher and Data Warehouse Specialist
+  (2 Oct: all queued and sent). With `include_keywords` set, a title must match one of them.
+  With none, the words of `desired_roles` plus engineering nouns (`rolePositive` in
+  `src/platforms/config.ts`) must appear in the title, and no roles means no filter.
+  Trainer, tutor, instructor, faculty, teacher and lecturer titles are dropped unless a
+  desired role names the word (`TEACHING_TITLE_TERMS`).
 - **Pay:** `min_salary` against every format seen (Lacs PA, LPA, ₹xL-₹yL, `/month`,
   ranges). Missing pay is unknown, not a reject.
 - **Years:** `max_years_required` against the first years match in the JD, including

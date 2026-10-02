@@ -266,6 +266,13 @@ for (const [name, e] of Object.entries(engines)) {
       [["Are you authorized to work in the United States?"], "work_auth.us", "No"],
       [["Will you require visa sponsorship to work for us?"], "sponsorship.home", "No"],
       [["Are you currently serving your notice period?"], "notice.serving", null],
+      // Live run 2 Oct: a B.Tech was sent as Yes to Master's and Doctorate (the stub user holds a B.Tech).
+      [["Have you completed the following level of education: Bachelor's Degree?"], "education.has_degree", "Yes"],
+      [["Have you completed the following level of education: Master's Degree?"], "education.has_degree", "No"],
+      [["Have you completed the following level of education: Doctorate?"], "education.has_degree", "No"],
+      [["Do you have a Bachelor's or Master's degree in Computer Science?"], "education.has_degree", "Yes"],
+      [["Do you have a postgraduate degree?"], "education.has_degree", "No"],
+      [["Do you hold a degree in engineering?"], "education.has_degree", "Yes"],
     ];
     for (const [args, k, v] of expectations) {
       const a = X.R.A(...args);

@@ -19,6 +19,8 @@ export const LINKEDIN_AGGREGATORS = ["joveo", "jobgether", "secondwind"];
 export const SENIOR_TITLE_TERMS = ["senior", "sr", "lead", "principal", "staff", "architect", "manager", "head", "director", "vp", "chief", "iii", "iv"];
 /** Dropped unless the user wants internships. */
 export const JUNIOR_TITLE_TERMS = ["intern", "interns", "internship", "trainee", "apprentice", "fresher", "freshers", "fresh graduate", "fresh graduates"];
+/** Teaching and training postings that keyword search returns for "AI developer" and the like (2 Oct: three trainer roles were queued). Dropped unless a desired role names them. */
+export const TEACHING_TITLE_TERMS = ["trainer", "tutor", "instructor", "faculty", "teacher", "lecturer"];
 
 export const LINKEDIN_GEO_IDS: Record<string, string> = { india: "102713980" };
 

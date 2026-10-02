@@ -12,6 +12,7 @@ import type { ScriptedPlatform } from "./ids.js";
 import type { PostedWithin } from "../domain/schemas.js";
 import {
   JUNIOR_TITLE_TERMS,
+  TEACHING_TITLE_TERMS,
   LINKEDIN_AGGREGATORS,
   LINKEDIN_GEO_IDS,
   NAUKRI_ALWAYS_EXTERNAL,
@@ -177,6 +178,20 @@ export function compileTerms(terms: (string | null | undefined)[]): string | nul
   return parts.length ? `(?<![a-z0-9])(?:${parts.join("|")})(?![a-z0-9])` : null;
 }
 
+/** With no include_keywords, a LinkedIn draft still needs a positive title filter: keyword search
+    matches the whole posting, so "AI developer" returned AI/ML Trainer, Quantitative Researcher and
+    Data Warehouse Specialist (2 Oct), all queued and sent. The filter is the words of the user's
+    desired roles plus the usual engineering nouns; no roles listed means no filter. */
+const ROLE_NOUNS = ["engineer", "developer", "sde", "programmer", "software", "swe", "full stack", "fullstack", "backend", "back end", "frontend", "front end", "devops", "ml", "ai"];
+export function rolePositive(roles: string[]): string | null {
+  if (!roles.length) return null;
+  // Fragments of "full stack", "back end" and "front end" are left out as words of their own ("Full Time Customer Support"
+  // would match "full"); the phrases are in ROLE_NOUNS.
+  const skip = new Set(["and", "of", "the", "for", "to", "full", "stack", "back", "front", "end"]);
+  const words = roles.flatMap((r) => r.toLowerCase().split(/[^a-z0-9+#]+/)).filter((w) => w.length >= 2 && !/^\d+$/.test(w) && !skip.has(w));
+  return compileTerms([...words, ...ROLE_NOUNS]);
+}
+
 const normSkill = (s: string) => s.toLowerCase().replace(/[^a-z0-9+#]+/g, " ").trim();
 
 /** Main technologies the user has no foothold in (knowledge.ts STACK_VOCAB): the draft's stack
@@ -222,11 +237,13 @@ export function screening(d: UserData, platform: ScriptedPlatform, li: { within?
   const seniority = prefs.seniority_levels.join(" ").toLowerCase();
   const wantsSenior = /senior|lead|staff|principal|manager|director|head/.test(seniority);
   const wantsJunior = /intern|fresher|trainee/.test(seniority) || prefs.employment_types.some((t) => /intern/i.test(t));
-  const negTitle = compileTerms([...(wantsSenior ? [] : SENIOR_TITLE_TERMS), ...(wantsJunior ? [] : JUNIOR_TITLE_TERMS)]);
+  const rolesText = prefs.desired_roles.join(" ").toLowerCase();
+  const teaching = TEACHING_TITLE_TERMS.filter((t) => !rolesText.includes(t));
+  const negTitle = compileTerms([...(wantsSenior ? [] : SENIOR_TITLE_TERMS), ...(wantsJunior ? [] : JUNIOR_TITLE_TERMS), ...(platform === "linkedin" ? teaching : [])]);
   const base = {
     negTitle,
     negStack: compileTerms(prefs.exclude_keywords),
-    pos: compileTerms(prefs.include_keywords),
+    pos: compileTerms(prefs.include_keywords) ?? (platform === "linkedin" ? rolePositive(prefs.desired_roles) : null),
     spam: compileTerms([...SPAM_COMPANIES, ...prefs.excluded_companies, ...(platform === "naukri" ? ["freelance", "freelancer"] : [])]),
     maxYears: prefs.max_years_required,
     minPay: perYear(prefs.min_salary, prefs.salary_period),
