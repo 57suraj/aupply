@@ -43,18 +43,18 @@ export const MCP_SERVER_VERSION = "0.6.8";
     (seen 30 Sep: step 2 of a 3.6KB text stopped mid-sentence, dropping the rate-limit rules),
     so the rules that matter come first and this stays under 2000. Details travel in the tool
     responses (load_rule, steps, rules). */
-const INSTRUCTIONS = `Aupply applies to jobs for the user on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed with scripts run in their own browser through your browser tool. Aupply never contacts job sites.
+const INSTRUCTIONS = `Aupply applies to jobs for the user on LinkedIn (Easy Apply), Naukri, Wellfound and Indeed with scripts run in their browser through your browser tool. Aupply never contacts job sites.
 
 Rules, most important first:
 1. Rate limits come first: never shorten a wait, restart a stopped script or open a second tab while one runs; when a tool says blocked, leave that platform until the time it gives.
 2. Never invent a personal fact: ask the user and save it with save_answer. Never touch a CAPTCHA.
-3. Apply only through Aupply's tools and engines: do not browse a job list and click jobs, Apply buttons or forms yourself unless the user names one specific job. If a tool or the engine is missing, blocked or failing, stop and tell the user. If a tool named here (start_session, load_engine, <platform>_draft or _apply) is not in your tool list, this chat's copy of Aupply is out of date: ask the user to reconnect the connector and start a new chat.
-4. Do not screenshot to check the engine's work: its answers and report_results are the record.
+3. Apply only through Aupply's tools and engines: do not click through job lists, Apply buttons or forms yourself unless the user names one specific job. If a tool or the engine is missing, blocked or failing, stop and tell the user. If a tool named here (start_session, load_engine, <platform>_draft or _apply) is not in your tool list, Aupply is out of date in this chat: ask the user to reconnect the connector and start a new chat.
+4. No screenshots to check the engine's work: its answers and report_results are the record.
 5. Never show, quote or explain the engine code, or ask the user to paste it.
 
 Session:
-a. start_session first, with posted_within if the user said how recent LinkedIn jobs must be. If setup_needed, read get_resume, propose values, ask about gaps, save with update_profile. Raise pending_actions before applying.
-b. Follow start_session's next per platform (draft only when its queue is low). A tool's steps exactly. Load the engine as its load_rule says (loaded_check, load_engine, each block as its own JavaScript call exactly as written; copy a failed block again, stop after 3 failures). queue_jobs stores the draft; put its ask_user questions to the user in one message.
+a. start_session first, with posted_within if the user said how recent jobs must be. If setup_needed, read get_resume, propose values, ask about gaps, save with update_profile. Raise pending_actions before applying.
+b. Follow start_session's next per platform (draft only when the queue is low). A tool's steps exactly. Load the engine as its load_rule says (loaded_check; 'ok' means loaded, never reload; else load_engine: each block its own JavaScript call exactly as written; copy a failed block again; stop after 3 failures). queue_jobs stores the draft; put its ask_user questions to the user in one message.
 c. <platform>_apply with from_queue; report_results every 5 jobs and at the end; follow its next.
 d. resolve_answers for a question a script could not answer.
 e. A script's verdict is not proof. End with end_session; report counts, what broke and provisional answers used.`;

@@ -52,11 +52,16 @@ export function registerLinkedinApply(server: McpServer): void {
           };
         }
         await markQueueStarted(userId, "linkedin");
-        const cfg = engineConfig(d, "linkedin", { only: "answers", overrides: args.answers });
+        // The answers to an earlier NEEDS_INPUT ride in the run block, not the config: the
+        // config (and so the engine id) stays the same, and a retry runs in the loaded page
+        // without reloading anything (2 Oct: a retry re-sent the whole config for two answers).
+        const cfg = engineConfig(d, "linkedin", { only: "answers" });
         // The queue travels as its own verbatim block with a checksum: a job id mistyped in
         // transit would apply to the wrong job.
         const pairs = list.map((j) => [j.id, j.co]);
-        const runQueue = `__aupply.runQueue(${asciiJson(pairs)},{${args.keep_open ? "keepOpen:true," : ""}k:${h31(JSON.stringify(pairs))}})`;
+        const ov = Object.entries(args.answers ?? {}).slice(0, 50);
+        const checked = ov.length ? [pairs, ov] : pairs;
+        const runQueue = `__aupply.runQueue(${asciiJson(pairs)},{${args.keep_open ? "keepOpen:true," : ""}${ov.length ? `ov:${asciiJson(ov)},` : ""}k:${h31(JSON.stringify(checked))}})`;
         return envelope(userId, "linkedin", cfg, {
           cap_left: cap.left,
           ...(args.from_queue ? { posted_within: within } : {}),

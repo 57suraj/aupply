@@ -12,6 +12,12 @@ function res_rules_b(X) {
     return val('experience.tech', ok ? yes : ok === false ? (yes === 'Yes' ? 'No' : '0') : null, { yn: ok === false ? 'no' : 'yes' });
   };
 
+  // The United States named in a question. Never the pronoun: "sponsorship to work for us"
+  // once read as the US and answered that an India-based user needs US sponsorship.
+  const US = /united states|\bu\.s\.(a\.?)?|\busa\b|\bamerica|\b(in|within) (the )?us\b|\bthe us\b/;
+  const homeUS = /^(united states|us|usa|united states of america)$/i.test(String(ME.country || '').trim());
+  const ynOf = (v) => (v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null);
+
   const rulesB = (s) => {
     let m;
     if (/english/.test(s) && /rate|scale|out of 10|1 to 10/.test(s)) return val('english', '9');
@@ -31,8 +37,13 @@ function res_rules_b(X) {
       return val('location.based_in', sentence, { yn: here ? 'yes' : 'no' });
     }
     if (/position is based|based out of our office|office location/.test(s)) return val('location.office', ME.city, { yn: ME.relocate === false ? null : 'yes' });
-    if (/sponsor/.test(s) && /united states|\bu\.?s\.?a?\b|america/.test(s)) { const d = ME.country && !/united states|^us$|^usa$/i.test(ME.country) ? 'Yes' : null; const v = saved('sponsorship.us', d); return val('sponsorship.us', v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
-    if (/sponsor|visa|h-?1b|work permit/.test(s)) { const v = saved('sponsorship.home', 'No'); return val('sponsorship.home', v, { yn: v === 'Yes' ? 'yes' : 'no' }); }
+    // Authorization before sponsorship, so "authorized to work in the US without sponsorship?"
+    // is an authorization question; "do you require sponsorship" stays a sponsorship one.
+    // 2 Oct: "Are you authorized to work in the United States?" got the home answer, Yes.
+    const authQ = /authori[sz]|legally|eligible to work|right to work/.test(s) && !/\b(require|need)/.test(s);
+    if (authQ && US.test(s)) { const v = saved('work_auth.us', ME.country ? (homeUS ? 'Yes' : 'No') : null); return val('work_auth.us', v, { yn: ynOf(v) }); }
+    if (/sponsor/.test(s) && US.test(s)) { const d = ME.country && !homeUS ? 'Yes' : null; const v = saved('sponsorship.us', d); return val('sponsorship.us', v, { yn: ynOf(v) }); }
+    if (/sponsor|visa|h-?1b|work permit/.test(s) && !authQ) { const v = saved('sponsorship.home', 'No'); return val('sponsorship.home', v, { yn: v === 'Yes' ? 'yes' : 'no' }); }
     if (/authori[sz]|legally|eligible to work|right to work/.test(s)) { const v = saved('work_auth.home', 'Yes'); return val('work_auth.home', v, { yn: v === 'No' ? 'no' : 'yes' }); }
     if (/(b\.?tech|b\.?e\b|bachelor|graduation|\bug\b).{0,20}(gpa|cgpa|percentage|marks|score)|cgpa/.test(s)) return val('education.grade', ME.gradeUg);
     if (/(inter|12th|intermediate|hsc|senior secondary)/.test(s) && /(gpa|cgpa|percentage|marks|score)/.test(s)) return val('education.grade_12', ME.grade12);

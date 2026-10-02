@@ -112,11 +112,22 @@ export function answerPack(d: UserData, overrides?: Record<string, string>, save
   const names = (p.full_name ?? "").trim().split(/\s+/).filter(Boolean);
   const keyed: Record<string, string> = {};
   const saved: [string, string][] = [];
+  // d.answers is most recently used first: the first answer for a key or a question wins
+  // (a Map built from the list would keep the oldest). Sorted by question afterwards, so the
+  // config's hash, and with it the engine cached in the page, changes only when an answer
+  // does, not each time one is used.
+  const seen = new Set<string>();
+  const qkey = (q: string) => q.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   for (const a of d.answers) {
-    if (a.key) keyed[a.key] = a.answer;
+    if (a.key && !(a.key in keyed)) keyed[a.key] = a.answer;
     // Any saved answer (keyed or not) answers its own exact question.
-    if (saved.length < savedLimit && (savedLimit > 60 || a.answer.length <= 600)) saved.push([a.question.slice(0, 300), a.answer]);
+    const q = qkey(a.question);
+    if (q && !seen.has(q) && saved.length < savedLimit && (savedLimit > 60 || a.answer.length <= 600)) {
+      seen.add(q);
+      saved.push([a.question.slice(0, 300), a.answer]);
+    }
   }
+  saved.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
   const rules = rulesOf(prefs);
   return {
     me: {
@@ -177,6 +188,15 @@ export function farStack(skills: string[]) {
   return STACK_VOCAB.filter((t) => !t.aliases.some((a) => have.has(normSkill(a))));
 }
 
+/** The technologies the user excluded by name (preferences.exclude_keywords, such as "PHP" or
+    ".NET"): a job whose description names one is skipped, never asked about (2 Oct: a user who
+    said "skip PHP and .NET" was asked about, or nearly sent to, PHP and .NET jobs, because only
+    titles were checked). Matched with each technology's own pattern, so excluding "angular"
+    never excludes React, which only lists Angular among its footholds. */
+export function excludedStacks(keywords: string[]) {
+  return STACK_VOCAB.filter((t) => keywords.some((k) => new RegExp(t.re, "i").test(` ${k.trim()} `)));
+}
+
 const slugTerm = (t: string) =>
   ({ "c#": "c-sharp|csharp", "c++": "cpp|c-plus-plus", ".net": "net|dotnet|dot-net" })[t.toLowerCase().trim()] ??
   t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -220,6 +240,7 @@ export function screening(d: UserData, platform: ScriptedPlatform, li: { within?
       geoId: LINKEDIN_GEO_IDS[(profile.location_country ?? "india").toLowerCase()] ?? null,
       agg: compileTerms(LINKEDIN_AGGREGATORS),
       stack: farStack(profile.skills).map((t) => [t.name, t.re]),
+      noStack: excludedStacks(prefs.exclude_keywords).map((t) => t.name),
       jdExclude: compileTerms(Array.isArray(rules.jd_exclude_keywords) ? rules.jd_exclude_keywords : []),
       skipMidSenior: rules.skip_mid_senior_without_years !== false,
       target: Number(rules.linkedin?.draft_target) || 40,

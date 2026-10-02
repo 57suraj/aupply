@@ -45,6 +45,10 @@ function res_rules_a(X) {
     if (/lpa|lakh|lac\b|in lakhs/.test(s) && /current|present/.test(s)) return val('comp.current', lakhs(ME.ctcCurrent));
     if (/shift|time ?zone|\b(est|edt|pst|pdt|cst|gmt|uk|us|eastern|pacific|central) (time|hours)|working hours|work hours|overlap|night|weekend|rotational|any time/.test(s)) return val('shifts', saved('shifts', 'Yes'), { yn: 'yes' });
     if (/date of joining|earliest (possible )?(date|joining)|joining date|available from|(earliest|expected|possible) start date/.test(s)) return val('start.earliest_date', ME.earliest);
+    // 2 Oct: "Are you currently serving the notice period?" got Yes from the notice rule
+    // (30 days, a positive answer on a Yes/No pair). Whether the user has resigned is a
+    // fact of its own: the saved answer, else asked once.
+    if (/serving (the |your |a |my )?notice|(currently|already) (on|in) (the |your |a )?notice|notice period.{0,25}\bserv(ing|ed)\b/.test(s)) { const v = saved('notice.serving', null); return val('notice.serving', v, { yn: v === 'Yes' ? 'yes' : v === 'No' ? 'no' : null }); }
     if (/notice period|when can you (join|start)|how soon (can you|you can)|in how many days|days (can you|to) join|earliest.*(join|start)|availability to join/.test(s)) return val('notice.days', ME.noticeDays == null ? null : String(ME.noticeDays), { days: ME.noticeDays });
     if (/can you (start|join|begin)\s*(immediately|right away|asap|now)|immediate joiner|immediately available/.test(s)) return val('start.immediately', ME.noticeDays == null ? null : ME.noticeDays > 0 ? 'No' : 'Yes', { yn: ME.noticeDays > 0 ? 'no' : 'yes' });
     if (/salary expectation|expected (salary|ctc|compensation|pay)|compensation expectation|desired (salary|ctc|compensation)|expect.{0,25}(ctc|salary|compensation|pay|package)/.test(s)) return val('comp.expected', perYear(ME.ctcExpected) == null ? null : String(perYear(ME.ctcExpected)), { money: ME.ctcExpected });

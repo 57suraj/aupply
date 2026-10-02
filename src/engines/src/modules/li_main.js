@@ -2,7 +2,7 @@
    minute pause after "Rate Limited" and a stop on the second) and window.__aupply. */
 function li_main(X) {
   'use strict';
-  const { CFG, P, S, ST, R, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont, until } = X;
+  const { CFG, P, S, ST, R, OVER, norm, status, wait, sleep, jitter, cut, aid, txt, h31, deepAll, pageTitle, trackerCount, job, cont, until } = X;
   let pageWait = P.page;
 
   /* The run carries on in a hidden tab: the Chrome window behind the Claude app is the usual
@@ -55,10 +55,15 @@ function li_main(X) {
   // q: [[jobId, companyName], ...]. keepOpen: single job, leave the modal open for a
   // real-click handoff (NEEDS_CLICK, FOLLOW_STUCK), then resume(). k is the checksum of q
   // the server sent with it: a job id mistyped in transit would apply to the wrong job.
+  // ov: [[question, answer], ...], the user's answers to an earlier NEEDS_INPUT. They ride in
+  // the run block (covered by k) rather than in the config, so a retry never reloads the
+  // engine: the config, and so the page's engine, stays the same.
   const runQueue = (q, opts) => {
     opts = opts || {};
-    if (opts.k != null && opts.k !== h31(JSON.stringify(q))) return 'CORRUPT_QUEUE: copy the run block again exactly as given';
+    const ov = Array.isArray(opts.ov) ? opts.ov : [];
+    if (opts.k != null && opts.k !== h31(JSON.stringify(ov.length ? [q, ov] : q))) return 'CORRUPT_QUEUE: copy the run block again exactly as given';
     if (S.running) return 'RUNNING';
+    for (const p of ov) if (Array.isArray(p) && p.length === 2 && p[0]) OVER.set(norm(p[0]), String(p[1]));
     S.running = true; S.phase = 'applying'; S.stop = false; S.end = null; S.info = { tracker: {} };
     (async () => {
       let rl = 0, n = 0;

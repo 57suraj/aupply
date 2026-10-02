@@ -196,7 +196,7 @@ everywhere:
   platform tool returns steps, an engine id and a tiny `loaded_check` block, never engine
   code. Claude runs `loaded_check` in its page; unless it answers `ok` it calls
   `load_engine` with the page's answer (the page's state), and the server sends only the
-  next few parts the page lacks: at most 12KB of module code per answer, never every
+  next few parts the page lacks: at most 17KB of module code per answer, never every
   module of an engine in one answer. Never add another way for engine code to reach
   Claude (no "send everything", debug dumps, or code in tool descriptions, instructions
   or docs served to clients). Deliveries are metered per user, engine and day
@@ -222,8 +222,11 @@ everywhere:
   funnel in `end_session`; the user's call, 1 Oct).
 - A chat drafts only when a platform's queue is low (`QUEUE_ENOUGH` in `src/services/sessions.ts`):
   start_session's `next` sends a healthy queue straight to apply. Drafting means loading the draft
-  engine and sweeping the platform, and a fresh LinkedIn page already costs about 78KB of code per
-  chat (draft 20KB in 2 answers, apply 58KB in 7); `load_engine` reports `answers_left`.
+  engine and sweeping the platform, and a LinkedIn page with no cache costs about 82KB of code
+  (draft 20KB in 2 answers, apply 62KB in 5); `load_engine` reports `answers_left`. After that the
+  page's own cache restores the engine with no code sent, and a changed config sends only the
+  config and boot parts. The shared rules and the full load rule go out once per session (the
+  first platform tool response after start_session); later responses carry short reminders.
 - Server instructions (`INSTRUCTIONS` in `src/mcp/server.ts`) stay under 2000 characters:
   Claude Code cuts them at 2048 (30 Sep: a 3.6KB text stopped mid-sentence and lost the rate-limit
   rules), so the rules that matter come first and details travel in tool responses. e2e checks it.
@@ -246,10 +249,19 @@ everywhere:
   in LinkedIn's whole-number fields, the job page's Save button clicked (jobs bookmarked),
   and three facts answered Yes by the technology rules (total-years thresholds, "worked
   with <employer>", driver's license). All fixed; see docs/automation-tools.md.
-- Parts are at most 9KB and loaded by Claude, never the user. Never `eval` on LinkedIn
-  (CSP, even on the tracker page after the first load); on Naukri, Wellfound and Indeed
-  the engine caches itself in page storage and `loaded_check` re-loads it with no server
-  call.
+- The second live LinkedIn run (2 Oct: 13 sent, 1 unconfirmed) found: a saved prose answer
+  ("30 days") shadowing the rule that picks "1 Month", and the numeric repair gluing a saved
+  CTC phrase into 101000000 (saved answers now carry the rule's answer as `alt`); US work
+  authorization answered with the home Yes, the pronoun "us" read as the US, "serving your
+  notice period" answered Yes; jobs naming an excluded stack (PHP, .NET) asked about instead
+  of skipped (`DROP_STACK`); and a retry's `answers` re-sending the whole config (they now
+  ride in the run block). See docs/automation-tools.md.
+- Parts are at most 9KB and loaded by Claude, never the user. Every engine caches itself in
+  page storage (LinkedIn: localStorage `__aupply_linkedin` and `__aupply_linkedin_draft`) and
+  `loaded_check` re-loads it with `eval` and no server call. 30 Sep, LinkedIn refused `eval`;
+  2 Oct (Chrome 154, Claude in Chrome) it allowed it on the tracker and job pages, after full
+  loads and SPA navigation. Where `eval` is refused the cache is skipped silently and the parts
+  path loads the engine, so never make anything depend on the cache.
 - One engine per platform (LinkedIn has two, so a draft never receives the apply code and
   the reverse), built and checked in this repo, versioned by hash; each part verifies its
   own checksum, so a part mistyped in transit refuses to load. Personal values reach an

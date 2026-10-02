@@ -17,6 +17,8 @@ export interface ResolverAnswer {
   eeo?: boolean;
   money?: number | null;
   days?: number | null;
+  /** On a saved answer: the rules' own answer to the question (option lists, numeric fields). */
+  alt?: ResolverAnswer | null;
 }
 
 export interface Resolver {

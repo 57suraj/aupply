@@ -13,7 +13,7 @@ import { getSupabaseClient } from "../db/supabase.js";
 import type { Json } from "../db/database.types.js";
 import { check, unwrap, unwrapMaybe } from "../lib/errors.js";
 import type { PostedWithin, QueueJobsInput, ReportResultsInput } from "../domain/schemas.js";
-import { defaultWithin } from "../platforms/config.js";
+import { defaultWithin, excludedStacks } from "../platforms/config.js";
 import { jobUrl, tryCanonicalJobId, wellfoundSlug, type ScriptedPlatform } from "../platforms/ids.js";
 import { strongMatch } from "../platforms/fit.js";
 import { mapResult } from "../platforms/results.js";
@@ -100,6 +100,20 @@ async function currentRun(userId: string) {
       .order("started_at", { ascending: false })
       .limit(1)
   )[0] ?? null;
+}
+
+/** Whether this session (the open run) already got the shared rules and the full load rule
+    from a platform tool of this family; marks it when not. Families, because the rules differ:
+    LinkedIn's engines run in a hidden tab, the others want it visible. With no open run the
+    answer is false and nothing is marked, so a chat that skipped start_session gets everything. */
+export async function sharedRulesSent(userId: string, family: "linkedin" | "other"): Promise<boolean> {
+  const run = await currentRun(userId);
+  if (!run) return false;
+  const meta = (run.metadata as Meta | null) ?? {};
+  const sent = (meta.rules_sent ?? {}) as Record<string, boolean>;
+  if (sent[family]) return true;
+  check(await db().from("runs").update({ metadata: { ...meta, rules_sent: { ...sent, [family]: true } } as Json }).eq("id", run.id).eq("user_id", userId));
+  return false;
 }
 
 export async function currentRunId(userId: string): Promise<string | null> {
@@ -201,6 +215,18 @@ export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsI
   const skips = new Map<string, (typeof input.skipped)[number]>();
   for (const j of input.skipped) { const id = canon(j.id); if (id && !jobs.has(id)) skips.set(id, j); }
 
+  // Jobs naming a technology the user excluded are skipped, not asked about (the LinkedIn
+  // prescreen already drops them; this covers the other platforms and older engines).
+  const prefs = unwrapMaybe(await db().from("preferences").select("max_years_required, exclude_keywords").eq("user_id", userId).maybeSingle());
+  const excluded = new Set(excludedStacks(prefs?.exclude_keywords ?? []).map((t) => t.name));
+  for (const [id, j] of jobs) {
+    const hit = j.sm?.find((n) => excluded.has(n));
+    if (hit) {
+      jobs.delete(id);
+      skips.set(id, { id: j.id, r: `DROP_STACK ${hit}`.slice(0, 60), t: j.t, co: j.co });
+    }
+  }
+
   const all = [...jobs.keys(), ...skips.keys()];
   const known = new Set<string>();
   for (let i = 0; i < all.length; i += 200) {
@@ -210,7 +236,6 @@ export async function queueJobs(userId: string, input: z.infer<typeof QueueJobsI
     rows.forEach((r) => r.external_id && known.add(r.external_id));
   }
 
-  const prefs = unwrapMaybe(await db().from("preferences").select("max_years_required").eq("user_id", userId).maybeSingle());
   const maxYears = prefs?.max_years_required ?? null;
   const score = (j: (typeof input.jobs)[number]) => {
     let s = 50;

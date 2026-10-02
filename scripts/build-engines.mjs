@@ -43,10 +43,13 @@ const PART_MAX = 9000;
 const SHARED = ["core", "pay", "res_base", "res_rules_a", "res_rules_b", "res_api"];
 /* One entry per engine, modules in load order. LinkedIn has two engines on purpose: a draft
    never receives the apply code (the form filler and the resolver), and an apply never
-   receives the screening code. The other platforms keep one engine that the page caches. */
+   receives the screening code. The other platforms keep one engine. Every engine caches
+   itself in page storage and loaded_check re-boots it from there with no server call; where
+   eval is refused the cache is skipped and the parts path loads it (2 Oct: eval works on
+   LinkedIn's tracker and job pages through the browser tool, which it did not on 30 Sep). */
 const ENGINE_DEFS = {
-  linkedin_draft: { source: "LinkedIn", modules: ["core", "pay", "li_base", "li_sweep", "li_screen", "li_dmain"], cache: null },
-  linkedin: { source: "LinkedIn", modules: [...SHARED, "li_base", "li_dom", "li_fill", "li_job", "li_main"], cache: null },
+  linkedin_draft: { source: "LinkedIn", modules: ["core", "pay", "li_base", "li_sweep", "li_screen", "li_dmain"], cache: { storage: "localStorage", key: "__aupply_linkedin_draft" } },
+  linkedin: { source: "LinkedIn", modules: [...SHARED, "li_base", "li_dom", "li_fill", "li_job", "li_main"], cache: { storage: "localStorage", key: "__aupply_linkedin" } },
   naukri: { source: "Naukri", modules: [...SHARED, "nk_chat", "nk_main"], cache: { storage: "localStorage", key: "__aupply_naukri" } },
   wellfound: { source: "Wellfound", modules: [...SHARED, "wf_apply", "wf_main"], cache: { storage: "sessionStorage", key: "__aupply_wellfound" } },
   indeed: { source: "Indeed", modules: [...SHARED, "in_fill", "in_main"], cache: { storage: "localStorage", key: "__aupply_indeed" } },
@@ -258,11 +261,19 @@ for (const [name, e] of Object.entries(engines)) {
       [["Do you have a valid driver's license?"], "drivers_license", null],
       [["Have you previously worked with WNS if not please put 0", "WNS"], "former_employee", "No"],
       [["Are you comfortable working at the WNS office in Chennai?", "WNS"], "willing", "Yes"],
+      // Live run 2 Oct: US authorization got the home Yes, "work for us" read as the US, and
+      // "serving your notice period" got Yes from the notice rule. The stub user is in India.
+      [["Are you authorized to work in the United States?"], "work_auth.us", "No"],
+      [["Will you require visa sponsorship to work for us?"], "sponsorship.home", "No"],
+      [["Are you currently serving your notice period?"], "notice.serving", null],
     ];
     for (const [args, k, v] of expectations) {
       const a = X.R.A(...args);
       if (!a || a.k !== k || a.v !== v) fail(`${name}: ${JSON.stringify(args)} answered ${JSON.stringify(a && { k: a.k, v: a.v })}, expected ${k} = ${v}`);
     }
+    // A saved answer ("30 days") that matches no option falls back to the rule's own pick (2 Oct).
+    const noticeOpt = X.R.pickOpt(X.R.A("What is your notice period?"), ["Select an option", "0-15 Days", "1 Month", "2 Months"]);
+    if (noticeOpt !== 2) fail(`${name}: the saved notice period picked option ${noticeOpt}, not "1 Month"`);
   }
 
   // No status answer may pass the Chrome extension's 1000-character cut (live run 1 Oct):

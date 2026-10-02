@@ -39,6 +39,8 @@ function li_screen(X) {
     const pay = payMax(t);
     if (pay != null && SC.minPay && pay < SC.minPay) return { v: 'DROP_PAY' };
     const sm = (SC.stack || []).filter((s) => new RegExp(s[1], 'i').test(t)).map((s) => s[0]);
+    // A technology the user excluded by name: skipped here, so it never takes a queue place.
+    if (sm.some((n) => (SC.noStack || []).includes(n))) return { v: 'DROP_STACK' };
     return { v: 'keep', minY: y.minY, yu: y.yu, lvl: lvl && !/not applicable/i.test(lvl) ? lvl : null, pay, sm };
   };
 
@@ -55,6 +57,15 @@ function li_screen(X) {
     (async () => {
       const keep = [], drop = [];
       let hits = 0, stop = null;
+      // Results go out as they come, a full chunk at a time, so the waits during the screen
+      // carry them instead of coming back empty (2 Oct: 4 empty waits, then 16 status calls).
+      const out = { keep: [], drop: [] };
+      const flush = (kind, all) => {
+        const parts = chunks(out[kind], 600);
+        const ready = all ? parts : parts.slice(0, -1);
+        for (const part of ready) ST.push({ phase: 'screened', [kind]: part, a: aid() });
+        out[kind] = all ? [] : parts.length ? parts[parts.length - 1] : [];
+      };
       try {
         for (const j of list) {
           if (keep.length >= target) break;
@@ -78,17 +89,22 @@ function li_screen(X) {
             if (rec.pay) k.pay = rec.pay;
             if (rec.sm && rec.sm.length) k.sm = rec.sm;
             keep.push(k);
+            out.keep.push(k);
+            flush('keep', false);
           } else if (!/^(HTTP|ERR)/.test(rec.v)) {
-            drop.push({ id: j.id, r: rec.v, t: cut(j.t, 50), co: cut(j.co, 30) });
+            const d = { id: j.id, r: rec.v, t: cut(j.t, 50), co: cut(j.co, 30) };
+            drop.push(d);
+            out.drop.push(d);
+            flush('drop', false);
           }
           await sleep(P.jd);
         }
       } catch (e) {
         stop = 'error: ' + cut(e && e.message, 80);
       }
-      // keep and drop in chunks that fit one answer, then the summary with done:1.
-      for (const part of chunks(keep, 600)) ST.push({ phase: 'screened', keep: part, a: aid() });
-      for (const part of chunks(drop, 600)) ST.push({ phase: 'screened', drop: part, a: aid() });
+      // What is left of keep and drop, in chunks that fit one answer, then the summary with done:1.
+      flush('keep', true);
+      flush('drop', true);
       ST.push(Object.assign({ phase: 'screened', done: 1, kept: keep.length, dropped: drop.length, a: aid() }, stop ? { stop } : {}));
       S.running = false; S.phase = 'screened';
     })();

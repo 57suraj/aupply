@@ -65,7 +65,7 @@ function li_fill(X) {
       if (i < 0) i = R.lowStakes(g.q, g.opts);
       // Employer-misconfigured question (a years question wired to Yes/No): Yes, but only
       // when the resolver did answer it positively. An unknown question goes to the user.
-      if (i < 0 && a && a.v != null && !/^(no|0)$/i.test(String(a.v)) && g.els.length === 2) i = g.opts.findIndex((t) => /^yes/i.test(t));
+      if (i < 0 && a && a.v != null && a.days == null && a.money == null && !/^(no|0)$/i.test(String(a.v)) && g.els.length === 2) i = g.opts.findIndex((t) => /^yes/i.test(t));
       if (i >= 0) { g.els[i].click(); log.push([g.q, g.opts[i]]); } else un.push(g.q + ' [opts:' + g.opts.join('/') + ']');
     }
     // Checkbox groups (a notice-period question once came as checkboxes), then lone
@@ -95,6 +95,19 @@ function li_fill(X) {
 
   // A numeric field that refused its value: read LinkedIn's validation message and
   // convert (Yes -> years, No -> 0, a decimal -> the nearest whole number).
+  // The number a numeric field takes for what it refused. Never the digits of a phrase glued
+  // together: "10 LPA (1000000 INR per year)" became 101000000 that way. The rule's number
+  // for the question first (a saved answer carries it as alt), then a lone number in the
+  // text, then the years for a word; a phrase with several numbers and no rule is left alone.
+  const numberFor = (el, v) => {
+    if (/^no$/i.test(v)) return '0';
+    const a = R.A(lab(el), pageTitle().co);
+    for (const c of [a, a && a.alt]) if (c && /^\d+(\.\d+)?$/.test(String(c.v == null ? '' : c.v))) return whole(String(c.v));
+    const nums = v.match(/\d+(?:\.\d+)?/g) || [];
+    if (nums.length === 1) return whole(nums[0]);
+    if (nums.length) return null;
+    return ME.years != null ? whole(String(ME.years)) : null;
+  };
   const repair = () => {
     let n = 0;
     for (const el of fields()) {
@@ -104,7 +117,8 @@ function li_fill(X) {
       if (!box) continue;
       const v = (el.value || '').trim();
       if (/^\d+$/.test(v)) continue;
-      const nv = whole(/^no$/i.test(v) ? '0' : v.replace(/[^\d.]/g, '') || (ME.years != null ? String(ME.years) : ''));
+      const nv = numberFor(el, v);
+      if (nv == null) continue;
       if (nv === v) continue;
       if (!nv) continue;
       setVal(el, nv);

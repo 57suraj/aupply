@@ -7,14 +7,16 @@
      p, p2  option regexes, tried first
      money  amount in currency units per year, for banded salary options
      days   notice in days, for banded notice options
-     protected  a never-invent fact with no saved value: skip the job */
+     protected  a never-invent fact with no saved value: skip the job
+     alt    on a saved answer: the rules' answer to the same question, for option lists
+            and numeric fields the saved prose cannot fill */
 function res_api(X) {
   'use strict';
   const { SOURCE, esc, has, norm, OVER, SAVED, val, SRC, EEO, band, moneyRange, numRange, daysBand, payMax, lakhs, rulesA, rulesB } = X;
   const rules = (s, co) => rulesA(s, co) || rulesB(s);
 
   const real = (t) => { const s = String(t || '').trim(); return !!s && !/^(select|choose|--|please)/i.test(s); };
-  const pickOpt = (a, texts) => {
+  const pick1 = (a, texts) => {
     if (!a || !has(a.v)) return -1;
     const T = texts.map((t) => String(t || '').replace(/\s+/g, ' ').trim());
     for (const re of [a.p, a.p2]) {
@@ -37,6 +39,13 @@ function res_api(X) {
     if (i < 0) i = T.findIndex((t) => real(t) && t.toLowerCase().startsWith(lv));
     if (i < 0 && lv.length > 3) i = T.findIndex((t) => real(t) && t.toLowerCase().includes(lv));
     return i;
+  };
+  // A saved answer is prose ("30 days", "10 LPA (1000000 INR per year)"): when no option
+  // matches it, the rule's own answer for the question (alt) picks. 2 Oct: a saved
+  // "30 days" failed the options "0-15 Days / 1 Month / ..." that the notice rule picks.
+  const pickOpt = (a, texts) => {
+    const i = pick1(a, texts);
+    return i < 0 && a && a.alt ? pick1(a.alt, texts) : i;
   };
   // Low-stakes questions only: EEO declines, "how did you hear" names the platform.
   // Anything else returns -1 so the question goes to the user.
@@ -72,7 +81,7 @@ function res_api(X) {
     const n = norm(label);
     if (!n) return null;
     if (OVER.has(n)) return val('override', OVER.get(n));
-    if (SAVED.has(n)) return val('saved', SAVED.get(n));
+    if (SAVED.has(n)) return val('saved', SAVED.get(n), { alt: ruled(label, co) });
     return ruled(label, co);
   };
 

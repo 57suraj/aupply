@@ -23,9 +23,10 @@ import { activeBlock, getState, mergeState } from "./automation.js";
 type Meta = Record<string, any>;
 
 /** Bytes of engine code per load_engine answer, and of everything in it (the user's config
-    and the boot part only count against the larger total). Two full-size parts at most, and
-    planLoad never puts every module of an engine in one answer. */
-export const BATCH_MODULE_BYTES = 12_000;
+    and the boot part only count against the larger total). Two full-size parts (PART_MAX 9KB)
+    at most, and planLoad never puts every module of an engine in one answer. 12KB sent one
+    part per answer (2 Oct: the apply engine took 7 answers, each a load_engine round trip). */
+export const BATCH_MODULE_BYTES = 17_000;
 export const BATCH_TOTAL_BYTES = 32_000;
 /** Full engines per user, engine and day. Reloading a page, or a retry, costs a part of one. */
 export const DAY_LOADS = 6;

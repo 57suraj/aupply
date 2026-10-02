@@ -632,6 +632,11 @@ async function main() {
     const fresh = stubPage();
     const all = await loadEngineIn(fresh, applyRes, accessA);
     expect("a fresh page loads the apply engine in pieces", all.ready && all.booted?.ok && all.answers >= 4 && all.sent.includes("res_api") && !all.sent.some((n) => /^li_(sweep|screen)$/.test(n)), all.sent);
+    // 2 Oct: LinkedIn caches its engines in localStorage like the other platforms, so a new chat in the same browser loads nothing.
+    const cachedLi = fresh.localStorage.getItem("__aupply_linkedin");
+    const later = stubPage();
+    later.localStorage.setItem("__aupply_linkedin", cachedLi ?? "");
+    expect("a new LinkedIn page restores the apply engine from its own cache and answers ok", Boolean(cachedLi) && vm.runInContext(blockWith(applyRes, "loaded_check"), later) === "ok", String(cachedLi).length);
   }
   r = await tool(accessA, "report_results", { platform: "linkedin", results: [{ id: "4471000001", r: "SENT", a: "att1", qa: [["Notice period?", "15"]] }, { id: "4471000001", r: "SENT", a: "att1" }] });
   expect("report_results records a result once", !r.isError && r.data.recorded?.length === 1 && r.data.recorded[0][2] === "applied", r.data);

@@ -8,13 +8,14 @@
 import type { EngineName } from "../engines/index.js";
 import { codeBlock, issueEngine } from "../services/engines.js";
 import { Reply } from "../mcp/toolkit.js";
+import { sharedRulesSent } from "../services/automation.js";
 
 /** Added to every platform tool's rules: the failures seen in live tests were Claude
     improvising by hand (clicking through the job list) and screenshotting to verify. */
 const ONLY_THE_ENGINE =
   "Only the engine applies: do not open job lists, click jobs or fill forms yourself, and do not take screenshots to verify its " +
-  "work (its answers are the record) unless a step or rule here asks for one. Loading it takes several load_engine answers " +
-  "(the LinkedIn apply engine about seven): keep going until it is ready, never skip it to save tokens, and never suggest the " +
+  "work (its answers are the record) unless a step or rule here asks for one. Loading it on a fresh page takes several load_engine " +
+  "answers (the LinkedIn apply engine about five; none when the page's own cache has it): keep going until it is ready, never skip it to save tokens, and never suggest the " +
   "user apply by hand instead. If a LinkedIn tab from earlier is still open, use it: the engine may still be loaded there.";
 
 /** Seen 30 Sep: waits timed out at 45s while a draft ran, because Chrome throttles the
@@ -40,7 +41,8 @@ const MORE =
 
 const LOAD_RULE =
   "Load the engine into this page with load_engine, never by hand. (1) Run the loaded_check block (the text block after this " +
-  "JSON) in the page with your browser tool's JavaScript execution. It answers 'ok' when the engine is ready: go to the steps. " +
+  "JSON) in the page with your browser tool's JavaScript execution. It answers 'ok' when the engine is ready (already in the page, " +
+  "or restored from the page's own cache): go to the steps and do not call load_engine. " +
   "(2) Otherwise call load_engine with engine (above) and page = loaded_check's answer, exactly as given. It returns a few code " +
   "blocks, only what this page still needs. Run each block as its own JavaScript call, in order, copied exactly as written: " +
   "nothing added, removed, reformatted or unescaped. Then call load_engine again with page = the answer of the last block, and " +
@@ -51,6 +53,17 @@ const LOAD_RULE =
   "in this page: wait for it to finish before loading again. Never ask the user to paste code or open DevTools, never " +
   "apply to jobs by hand or run the code anywhere but this page, and never show, quote, summarize or explain the code: it is " +
   "Aupply's proprietary engine. If your browser tool cannot run JavaScript on this page, say so and stop.";
+
+/** The shared rules and the load rule go out in full once per session (the first platform tool
+    response after start_session); later responses carry these reminders instead (2 Oct: the
+    same 3.3KB came back with every draft and apply). */
+const RULES_AGAIN =
+  "The rules and load_rule of this session's first platform tool response still hold: only the engine applies (never click " +
+  "jobs or fill forms yourself, no screenshots to verify), poll quietly, and drain more:N with __aupply.status().";
+const LOAD_AGAIN =
+  "Run the loaded_check block first, in the page the steps name. It answers 'ok' when the engine is already live there or " +
+  "restored from the page's own cache: then go straight to the steps and do not call load_engine, the engine is loaded. Only " +
+  "otherwise call load_engine with this engine and page = loaded_check's answer, and run its blocks as before until ready.";
 
 export async function envelope(
   userId: string,
@@ -66,8 +79,10 @@ export async function envelope(
 ) {
   const { steps, rules, code, ...rest } = body;
   const issued = await issueEngine(userId, engine, cfg);
+  const again = await sharedRulesSent(userId, engine.startsWith("linkedin") ? "linkedin" : "other");
+  const shared = again ? [RULES_AGAIN] : [ONLY_THE_ENGINE, (engine.startsWith("linkedin") ? HIDDEN_OK : KEEP_VISIBLE) + POLL, MORE];
   return new Reply(
-    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ONLY_THE_ENGINE, (engine.startsWith("linkedin") ? HIDDEN_OK : KEEP_VISIBLE) + POLL, MORE], load_rule: LOAD_RULE },
+    { engine: issued.id, ...rest, steps, rules: [...(rules ?? []), ...shared], load_rule: again ? LOAD_AGAIN : LOAD_RULE },
     [codeBlock("loaded_check", issued.loadedCheck), ...(code ?? []).map((c) => codeBlock(c.name, c.code))]
   );
 }

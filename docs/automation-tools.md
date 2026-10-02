@@ -139,7 +139,9 @@ as what the scripts did, usually more, because time is free.
 Result codes, as the scripts return them:
 
 - LinkedIn engine (`__job`): `SENT`, `UNCONFIRMED`, `NEEDS_INPUT`, `STALL`, `NO_BUTTON`, `FOLLOW_STUCK`, `NO_MODAL`, `NO_EASY_APPLY`, `CLOSED`, `DAILY_LIMIT`. The runner (`__runQ`) adds `TITLE_MISMATCH`, `RATE_LIMITED`, `ERR`.
-- LinkedIn prescreen (`__pre2`): `keep`, `CLOSED`, `DROP_ATS:<name>`, `DROP_REACT_NATIVE`, `DROP_YEARS`, `DROP_MIDSENIOR_NOYEARS`, `RATE_LIMITED`, `HTTP_<code>`, `ERR`.
+- LinkedIn prescreen (`__pre2`): `keep`, `CLOSED`, `DROP_STACK` (the JD names a technology
+  the user excluded by name in `exclude_keywords`, matched with STACK_VOCAB's pattern;
+  `queue_jobs` skips such jobs on every platform too, instead of asking), `DROP_ATS:<name>`, `DROP_REACT_NATIVE`, `DROP_YEARS`, `DROP_MIDSENIOR_NOYEARS`, `RATE_LIMITED`, `HTTP_<code>`, `ERR`.
 - Naukri: `APPLIED` (200), `REJECTED` (406), `ALREADY`, `EXTERNAL`, `NO_APPLY_BUTTON`, `NO_ANSWERABLE_QUESTION`, `CLICK_FAILED`, `MAX_STEPS`
 - Wellfound: `ALREADY`, `SKIP_<n>YRS`, `SKIP_LOWPAY`, `NO_APPLY`, `SENT`, `NEEDS_INPUT`, `UNCONF`, `NO_MODAL`, `NO_SEND`, `BLOCKED_LOC`
 - Indeed: `NAVIGATED`, `READY_FOR_CAPTCHA`, `READY_TO_SUBMIT`, `NEEDS_DROPDOWN`, `NEEDS_INPUT`, `NO_INDEED_APPLY`, `ALREADY`, `STUCK`
@@ -361,7 +363,10 @@ consequential. Draft tools only return a script that reads (storing the queue is
 
 **`linkedin_apply`**
 - Input: `jobs?` (ids or URLs), `from_queue?`, `limit?`, `answers?` (question → answer
-  overrides after a `NEEDS_INPUT`).
+  overrides after a `NEEDS_INPUT`). On LinkedIn the answers ride in the run block
+  (`{ov: [[question, answer], ...], k}`, k covering `[queue, ov]`), never in the config, so
+  the engine id stays the same and a retry runs in the loaded page with no reload (2 Oct:
+  a retry for two answers re-sent the whole config). The page keeps them for its later runs.
 - Open the tracker page (or stay on it after a draft); load the apply engine (what the
   page already holds is not sent again); run the `run` block, which is
   `__aupply.runQueue([[id, company], ...], {k: <checksum>})`: a separate verbatim block
@@ -501,12 +506,12 @@ The loading protocol:
 
 1. Claude opens the page and runs the `loaded_check` block in it. It answers `ok` when this
    exact engine (version and config) is live, re-loading it from the page's own cache first
-   on the platforms that allow `eval` (Naukri, Wellfound, Indeed). Otherwise it answers
+   where the page allows `eval` (every platform since 2 Oct, LinkedIn included). Otherwise it answers
    the page's state: `[{module: hash, ...}, config tag, engine tag]`. It reveals nothing
    about the engine.
 2. Claude calls `load_engine` with `engine` and `page` = that answer. The server plans from
    the state (`planLoad` in `src/engines/index.ts`): the modules the page lacks, by hash;
-   then the rest of the user's config; then the boot part. It sends at most 12KB of module
+   then the rest of the user's config; then the boot part. It sends at most 17KB of module
    code per answer (32KB with config and boot), and never every module of an engine in one
    answer, each part as its own text block labelled `/*aupply <engine>@<version> <part>*/`.
 3. Claude runs each block as its own JavaScript call, in order, and every part answers with
@@ -553,11 +558,16 @@ Rules every engine follows, from the browser tool's limits:
 - **Anything Claude must copy and that has consequences travels as a verbatim block with a
   checksum.** The LinkedIn queue (job ids) is one: `runQueue` answers `CORRUPT_QUEUE`
   instead of applying to a job id that was mistyped.
-- **Never `eval` on LinkedIn.** The browser tool runs a pasted part outside the page's
-  CSP, so pasting always works. LinkedIn refuses `eval` and `new Function` on job pages,
-  and on the tracker page after the first load (30 Sep), so LinkedIn never uses a cache.
-  Naukri, Wellfound and Indeed allow `eval`: there the boot part caches the whole engine
-  in page storage and `loaded_check` re-loads it in the same call, with no server call.
+- **The page cache is a bonus, never a dependency.** The browser tool runs a pasted part
+  outside the page's CSP, so pasting always works. On 30 Sep LinkedIn refused `eval` and
+  `new Function` on job pages and on the tracker page after the first load; on 2 Oct (Chrome
+  154 through Claude in Chrome) both worked on the tracker and on job pages, after full loads
+  and after SPA navigation. So every engine's boot part caches the whole engine (modules,
+  config, boot) in page storage, LinkedIn included, and `loaded_check` re-loads it in the same
+  call with no server call; where `eval` is refused the try/catch skips it and the parts path
+  loads the engine as before. A cached engine with an old config re-registers its modules,
+  so load_engine then sends only the config and boot parts. Saved answers are sorted in the
+  config, so its hash changes when an answer changes, not when one is used.
 - **Loading is Claude's job.** The load rule and the server instructions say so: never
   ask the user to paste code or open DevTools; if the browser tool cannot run
   JavaScript, say so and stop.
@@ -654,7 +664,7 @@ how to pick an option, and whether it may ever be inferred.
 | compensation | `comp.current`, `comp.expected`: rupees, lakhs or LPA read from the label; a banded dropdown picks the band that contains the value |
 | availability | `notice.days` (bands; "Immediate" only when true), `start.earliest_date`, `start.immediately`, `shifts` |
 | location | `location.based_in` (truthful: "based in X, willing to relocate to Y"), open city questions ("Which city are you located in?") answer the city, `relocate`, `preferred_locations`; inline numbered options return the number |
-| eligibility | `work_auth.home`, `sponsorship.home`, `sponsorship.us`, `passport` |
+| eligibility | `work_auth.home`, `work_auth.us`, `sponsorship.home`, `sponsorship.us`, `passport`, `notice.serving` |
 | education | `education.degree`, `.major`, `.school`, `.dates`, `.grade`, `.grade_12`, `.grade_10` |
 | history | `former_employee` (No), `referred` (No), `non_compete` (No) |
 | long form | `pitch.summary`, `cover_note`, `why_seeking`, `skills_text`, `projects_text` |
@@ -667,6 +677,15 @@ family members' names.
 
 **Resolution order:** protected check → saved answer by key → profile field → universal
 rule → technology policy → exact match on a saved ad-hoc answer → `NEEDS_INPUT`.
+In code (`res_api` `A`) an exact-question saved answer is looked up first but carries the
+rules' answer as `alt`: when the saved prose matches no option ("30 days" against "1 Month"),
+or a numeric field refuses it ("10 LPA (1000000 INR per year)"), the rule's value is used.
+The numeric repair never glues the digits of a phrase together (2 Oct: that turned the
+saved expected CTC into 101000000); several numbers and no rule leave the field to stall.
+The US is never read from the pronoun "us"; authorization to work in the US
+(`work_auth.us`, default No outside the US) is not home authorization; "are you serving
+your notice period" is its own fact (`notice.serving`, asked once), not a Yes from the
+notice rule.
 
 **Ordering hazards.** Each of these cost a failed or wrong application in applix, and
 each becomes a test:

@@ -31,7 +31,7 @@ export function registerLinkedinDraft(server: McpServer): void {
       inputSchema: {
         posted_within: PostedWithinInput,
         keywords: z.array(z.string().min(2).max(80)).max(12).optional().describe("Default: the user's desired roles."),
-        target: z.number().int().min(5).max(60).optional().describe("Jobs to keep. Default 40."),
+        target: z.number().int().min(5).max(60).optional().describe("Jobs to keep. Default 40. Not the number of applications wanted: some kept jobs go to ask_user or fail, so leave the default unless the user asks for a smaller draft."),
       },
       annotations: READ_ONLY,
     },

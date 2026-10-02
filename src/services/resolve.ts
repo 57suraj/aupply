@@ -42,9 +42,18 @@ export async function resolveAnswers(userId: string, input: { questions: Questio
     if (i < 0) i = R.lowStakes(item.q, item.options);
     return i >= 0 ? { option: item.options[i] } : { option: null, note: "no option matches: ask the user" };
   };
-  // A numeric field never gets "Yes": the years for a positive answer, 0 for a negative.
-  const numeric = (answer: string, item: QuestionIn) =>
-    item.field !== "number" || /^\d+(\.\d+)?$/.test(answer) ? answer : /^no$/i.test(answer) ? "0" : years != null ? String(years) : answer;
+  // A numeric field never gets "Yes": the years for a positive answer, 0 for a negative. A saved
+  // phrase ("10 LPA (1000000 INR per year)") takes the rule's number (alt), else its one number;
+  // a phrase with several numbers and no rule stays as it is rather than turning into the years.
+  const NUM = /^\d+(\.\d+)?$/;
+  const numeric = (answer: string, item: QuestionIn, a?: ResolverAnswer | null) => {
+    if (item.field !== "number" || NUM.test(answer)) return answer;
+    if (/^no$/i.test(answer)) return "0";
+    if (a?.alt?.v != null && NUM.test(String(a.alt.v))) return String(a.alt.v);
+    const nums = answer.match(/\d+(?:\.\d+)?/g) ?? [];
+    if (nums.length === 1) return nums[0];
+    return nums.length || years == null ? answer : String(years);
+  };
 
   return Promise.all(
     input.questions.map(async (item) => {
@@ -54,7 +63,7 @@ export async function resolveAnswers(userId: string, input: { questions: Questio
         return { q, status: "protected", key: a.what, note: "Aupply never invents this: ask the user, or skip the job" };
       }
       if (a && a.v != null) {
-        const answer = numeric(String(a.text ?? a.v), item);
+        const answer = numeric(String(a.text ?? a.v), item, a);
         const row = a.k === "saved" ? byQuestion.get(R.norm(item.q)) : byKey.get(a.k);
         const fromRow = row && (a.k === "saved" || row.answer === a.v || row.answer === a.text);
         return {
