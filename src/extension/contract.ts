@@ -43,7 +43,13 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 // Health
 // ---------------------------------------------------------------------------
 
-export const HealthResponse = z.object({ ok: z.literal(true), version: z.string(), min_ext_version: z.string() });
+export const HealthResponse = z.object({
+  ok: z.literal(true),
+  version: z.string(),
+  min_ext_version: z.string(),
+  /** The server's self-check of the built engine definitions it uses. */
+  engine: z.object({ ok: z.boolean(), fails: z.array(z.string()) }).optional(),
+});
 export type HealthResponse = z.infer<typeof HealthResponse>;
 
 // ---------------------------------------------------------------------------
@@ -161,6 +167,20 @@ export const OnboardingSaveRequest = z.object({
 });
 export const OnboardingSaveResponse = z.object({ saved: z.array(z.string()), missing: z.array(z.string()) });
 export type OnboardingSaveResponse = z.infer<typeof OnboardingSaveResponse>;
+
+/** Proposed values (nothing saved yet), what came from the resume, and the gaps to ask about. */
+export const OnboardingProposeResponse = z.object({
+  proposal: z.object({
+    profile: z.record(z.unknown()),
+    preferences: z.record(z.unknown()),
+    experiences: z.array(z.record(z.unknown())),
+    educations: z.array(z.record(z.unknown())),
+  }),
+  from_resume: z.array(z.string()),
+  to_ask: z.array(z.string()),
+  ai_used: z.boolean(),
+});
+export type OnboardingProposeResponse = z.infer<typeof OnboardingProposeResponse>;
 
 // ---------------------------------------------------------------------------
 // Client log upload

@@ -9,7 +9,7 @@
  *   Website (Supabase session): GET|POST /web/pair/:code  GET /web/devices
  *     DELETE /web/devices/:id  GET /web/extension
  *   Device (device token + version gate): POST /device/signout  PATCH /device  GET /me
- *     POST /onboarding/save  POST /events
+ *     POST /onboarding/propose  /onboarding/save  POST /events
  *   Cron (Bearer CRON_SECRET): GET /cron/cleanup
  */
 
@@ -33,7 +33,8 @@ import { cleanupAll, requireCron } from "../services/cleanup.js";
 import { listDevices, renameDevice, revokeDevice } from "../services/devices.js";
 import { logClientEvents } from "../services/events.js";
 import { me } from "../services/me.js";
-import { saveOnboarding } from "../services/onboarding.js";
+import { proposeOnboarding, saveOnboarding } from "../services/onboarding.js";
+import { selfCheck } from "../engine/modules.js";
 import { EXT_VERSION } from "../version.js";
 import { DOWNLOAD_PATH, extErrorHandler, minVersion, versionGate } from "./http.js";
 
@@ -62,8 +63,13 @@ const device: RequestHandler[] = [versionGate, requireDevice];
 const uuidParam = (req: Request, name = "id") => z.string().uuid().parse(req.params[name]);
 const userOf = (res: Response) => sessionUser(res).id;
 
+// The built engine definitions the server relies on (clean, yearsOf, payMax, NEVERTICK,
+// CONSENT), checked once per process and reported by /health.
+const engineFails = selfCheck();
+if (engineFails.length) console.error("[ext] engine self-check failed:", engineFails.join(", "));
+
 v1.get("/health", (_req, res) => {
-  res.json({ ok: true, version: EXT_VERSION, min_ext_version: minVersion() } satisfies HealthResponse);
+  res.json({ ok: true, version: EXT_VERSION, min_ext_version: minVersion(), engine: { ok: !engineFails.length, fails: engineFails } } satisfies HealthResponse);
 });
 
 // ---------------------------------------------------------------------------
@@ -117,6 +123,9 @@ v1.patch("/device", ...device, async (req, res) => {
 });
 v1.get("/me", ...device, async (_req, res) => {
   res.json(await me(deviceOf(res)));
+});
+v1.post("/onboarding/propose", ...device, async (_req, res) => {
+  res.json(await proposeOnboarding(deviceOf(res).userId));
 });
 v1.post("/onboarding/save", ...device, async (req, res) => {
   res.json(await saveOnboarding(deviceOf(res).userId, req.body));

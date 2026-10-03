@@ -259,6 +259,28 @@ async function main() {
   expect("pair the main device", dev.deviceId && dev.access, dev.poll.body);
   r = await http("GET", "/me", { token: dev.access });
   expect("a fresh user has setup gaps", r.status === 200 && r.body.setup_gaps.includes("profile.phone") && r.body.setup_gaps.includes("preferences.expected_salary"), r.body?.setup_gaps);
+  r = await http("POST", "/onboarding/propose", { token: dev.access, json: {} });
+  expect("propose without a resume -> 404 with a hint", r.status === 404 && /resume/i.test(r.body?.error?.message ?? ""), r.body);
+  await admin.from("resumes").insert({
+    user_id: userId, label: "E2E resume", is_default: true,
+    content: "Asha Testwala\nSoftware Engineer\nasha.testwala@example.com | +91 90000 00000\nPune, India\n\nExperience\nExamplesoft, Software Engineer, 2023 - present\nBuilt APIs in Node.js and TypeScript on PostgreSQL; React dashboards; Docker on AWS.\n\nEducation\nExample Institute of Technology, B.Tech Computer Science, 2019 - 2023",
+  });
+  r = await http("POST", "/onboarding/propose", { token: dev.access, json: {} });
+  expect(
+    "propose from the resume (fake AI): email and phone by regex, the rest proposed, nothing saved",
+    r.status === 200 && r.body.ai_used === true && r.body.proposal.profile.email === "asha.testwala@example.com" && r.body.proposal.profile.phone === "+91 90000 00000" &&
+      r.body.proposal.profile.full_name === "Asha Testwala" && r.body.proposal.profile.skills?.includes("Node.js") && r.body.to_ask.includes("profile.notice_period_days"),
+    r.body
+  );
+  const { data: usage } = await admin.from("ext_ai_usage").select("purpose, model, requests").eq("user_id", userId);
+  expect("AI usage is recorded per purpose and model", usage?.some((u) => u.purpose === "onboarding" && u.model === "fake" && u.requests === 1), usage);
+  await admin.from("ext_ai_usage").insert({ user_id: userId, day: new Date().toISOString().slice(0, 10), purpose: "fit", model: "e2e-budget", cost_micro_usd: 10_000_000 });
+  r = await http("POST", "/onboarding/propose", { token: dev.access, json: {} });
+  expect("over the daily AI budget: the proposal falls back to what the regex found", r.status === 200 && r.body.ai_used === false && r.body.proposal.profile.email === "asha.testwala@example.com" && !r.body.proposal.profile.full_name, r.body);
+  await admin.from("ext_ai_usage").delete().eq("user_id", userId).eq("model", "e2e-budget");
+  r = await http("GET", "/health", { version: null });
+  expect("the server's engine self-check passes", r.body?.engine?.ok === true, r.body);
+
   r = await http("POST", "/onboarding/save", { token: dev.access, json: { profile: { years_experience: "lots" } } });
   expect("onboarding/save validates with the profile schema", r.status === 400 && code(r) === "invalid_request", r.body);
   r = await http("POST", "/onboarding/save", {

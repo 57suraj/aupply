@@ -15,7 +15,7 @@ still describes the MCP channel and stays true for it.
 | 0. Orientation | done: MCP e2e baseline 153 passed |
 | 1. Database | done |
 | 2. `/ext` function, auth, devices | done: e2e-ext sections 1 to 4 |
-| 3. AI module | not started |
+| 3. AI module | done in fake mode; smoke test waits on `DEEPSEEK_API_KEY` |
 | 4. Draft pipeline | not started |
 | 5. Apply pipeline | not started |
 | 6. The extension | not started |
@@ -65,6 +65,39 @@ Testing: `npm run e2e:ext` against a local server started as
 `MCP_BASE_URL=http://localhost:3101 EXT_PORT=3101 AI_FAKE=1 EXT_MIN_VERSION=0.1.0 CRON_SECRET=e2e-cron-secret npx tsx src/extension/server/dev.ts`
 (the plan's command plus a minimum version, so the gate is tested, and a known cron secret).
 
+## AI module (phase 3)
+
+`src/extension/ai/`: `client.ts` (`callJson`, two tiers, budget, retries, usage), `pricing.ts`,
+`usage.ts`, `fake.ts` (`AI_FAKE=1`), and `prompts/` with Appendix B's five prompts verbatim, each
+with a `PROMPT_VERSION` and a zod schema that clamps and cuts (a verdict is always recomputed
+from the clamped score). `prompts/common.ts` holds the contact redaction, `stableJson` (sorted
+keys, for the prefix cache) and `extractJson` (the first JSON object in the content).
+
+- OpenAI SDK 7.27 (`openai`), base URL `AI_BASE_URL`, `maxRetries: 0` (the client retries
+  itself: one retry for empty or invalid output, two for 429, 5xx and network errors at 2s and
+  6s). `thinking` is added to the params with a narrow cast.
+- Budget: the user's spend for the UTC day from `ext_ai_usage` is checked before every call;
+  at or over `EXT_AI_DAILY_BUDGET_MICRO_USD` the call throws `AiBudgetExceeded`. Fake calls
+  record usage at zero cost under model `fake`.
+- Prices re-checked on 4 Oct against api-docs.deepseek.com: the same numbers as the plan
+  (Flash $0.006 hit, $0.30 miss, $1.20 out per 1M tokens at peak; Pro $0.044 / $1.32 / $3.96).
+  That page does not mention the Pro-to-Flash routing.
+- `engine/modules.ts` loads `core`, the resolver modules, `li_screen` and `li_dom` from
+  `src/engines/generated.ts` through `node:vm` and exposes `clean`, `yearsOf`, `NEVERTICK`,
+  `CONSENT`, a per-user resolver and `payMax`. The self-check runs once per process and
+  `/health` reports it (`engine.ok`).
+- `services/resumeProfile.ts`: the profile per resume version (`pickResume`, sha256 of the
+  text), cached in `ext_resume_profiles`; no resume text or no AI gives a profile from the
+  profile fields (`basis: 'profile'`, not cached). Also the fit prompt's candidate block.
+- `POST /onboarding/propose`: email and phone by regex (never sent to the AI); the rest of the
+  resume (emails and phones removed, the city kept) to the smart tier; each proposed field kept
+  only if the MCP's own schema accepts it. No AI (no key, budget spent, errors): the proposal
+  carries the regex fields and `ai_used: false`, never an error.
+- `npm run ai:smoke` (`scripts/ai-smoke.mjs`, run through tsx so it uses the client's own
+  `buildParams`): not run yet, `DEEPSEEK_API_KEY` is not set. Findings go here when it runs.
+  `AI_SMART_JSON_MODE=off` switches the smart tier to prompt-only JSON if JSON mode fails with
+  thinking on.
+
 ## Deviations from the plan
 
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
@@ -77,6 +110,10 @@ Testing: `npm run e2e:ext` against a local server started as
 - The website endpoints use the imported `requireUser`, whose 401 body is the MCP's
   `{ error: "..." }` string, not the contract's object. The website's helper handles both.
 - Ending a stale run (cleanup) also closes its open leases as `ABORTED`.
+- `/onboarding/propose` answers with `ai_used`; without AI it still answers (regex fields only)
+  instead of a 503, so the side panel's form is always filled as far as it can be.
+- New env `AI_SMART_JSON_MODE` (see the AI section). `/health` also reports the engine
+  self-check.
 
 ## Open issues
 
