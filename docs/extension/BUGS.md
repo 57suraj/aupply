@@ -242,3 +242,20 @@ channel uses too. The extension works around the first two.
 - **Design consequence (a rule).** The extension exposes no files to pages (no
   `web_accessible_resources`), so such probes can never find it, and it adds nothing to LinkedIn's
   DOM beyond filling the form. Keep it that way.
+- **Later (4 Oct, reported again: "this still keeps happening").** Checked again; still not a bug,
+  nothing changed. Evidence: (1) the built bundles (`dist/*.js`) hold no `getURL`, no
+  `chrome-extension` string and no injected `img`, `link` or `script`; the only `fetch` calls go to
+  allowlisted LinkedIn URLs (content) and Aupply (service worker). The other known cause of these
+  requests, an orphaned content script calling `chrome.runtime.getURL` after a reload (it returns
+  `chrome-extension://invalid/`), cannot happen because nothing calls it. (2) Chromium rewrites any
+  page request for an extension file that is not installed or not web accessible to
+  `chrome-extension://invalid/` (`kExtensionInvalidRequestURL`) and fails it inside the browser;
+  nothing reaches a server. (3) LinkedIn's scan is public ("BrowserGate", 2026): about 6,000
+  extension ids probed on every full page load, Chromium only. The worker tab does a full load per
+  job, so a run shows the burst once per job; normal browsing shows it once per visit. The request
+  the user pasted (no referer, Chrome 154) matches a page-initiated probe.
+  **Decision: no fix.** Hiding the requests would mean patching `fetch` in LinkedIn's main world,
+  which LinkedIn can detect and which breaks the rule above; `declarativeNetRequest` cannot touch
+  `chrome-extension://` requests. They cost no rate limit (none leave the browser). If a report
+  ever ties them to a real failure, check the network panel's Initiator column first: a
+  `static.licdn.com` script is LinkedIn; anything from the extension's own id is ours.
