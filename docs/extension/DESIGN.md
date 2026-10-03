@@ -18,7 +18,7 @@ still describes the MCP channel and stays true for it.
 | 3. AI module | done; smoke test run 4 Oct (findings below) |
 | 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
 | 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
-| 6. The extension | not started |
+| 6. The extension | built; tests green; waits on one manual "Load unpacked" |
 | 7. Website pages | not started |
 | 8. Hardening | not started |
 | 9. Documentation | not started |
@@ -161,6 +161,40 @@ Smoke test, 4 Oct 2026 (`deepseek-flash` for both tiers, through the OpenAI SDK 
   (`source = 'user'`, with the protected key when there is one) and releases every waiting job
   at once; dismissing skips them. Review lists the extension AI's provisional answers.
 
+## The extension (phase 6)
+
+`extension/`: Manifest V3, Chrome 120+. `npm run build:extension` (part of `npm run build`, so
+every Vercel deploy ships it) typechecks, bundles with esbuild (background 97KB esm, content 17KB
+iife, side panel 240KB iife with React), writes the manifest and icons (drawn in
+`scripts/icons.mjs` with `node:zlib`), refuses any output containing `eval(`, `new Function` or a
+URL host other than LinkedIn and Aupply, zips `dist/` and writes `src/extension/version.ts`.
+
+- **Service worker** (`src/background`): `api.ts` (bearer device token, one shared refresh, zod on
+  every answer, 426 and revoke handling, a keep-awake ping while a request runs), `auth.ts`
+  (pairing and sign-out), `tab.ts` (the worker tab: an orange "Aupply" group, never discarded,
+  trusted clicks through the optional `debugger` permission), `runner.ts` (the run), `ui.ts`
+  (the side panel's state), `index.ts` (listeners and the message router).
+- **The runner** is a state machine persisted in `chrome.storage.session` after every step:
+  `todo` (what to do next) and `pending` (what it waits for: a time, a page saying ready, a
+  command finishing, the user). It is woken by events only (an alarm, a timer for waits of 20
+  seconds or less, `cs/ready`, `cs/done`), so a service worker stopped between events resumes
+  where it was. Every state change goes through one lock. The watchdog alarm (every minute)
+  sends the heartbeat and checks the 45 second page-load and 5 minute stall limits. Waits keep
+  the floors: 30 seconds between jobs, 6 (8 when slowed) seconds after a job page loads.
+- **Content script** (`src/content`): idle on every LinkedIn page unless it is the worker tab.
+  `linkedin/dom.ts`, `form.ts`, `job.ts` are the ports of `li_dom`, `li_fill` (the reading half)
+  and `li_job` + `li_main`'s per-job part; `guestFetch.ts` makes the guest search and JD reads;
+  `sleep.ts` is `core`'s hidden-tab-safe sleep. Each form page's fields go to the server in one
+  `apply/answers` call; nothing in the extension decides an answer. The content script holds no
+  Aupply address and no token.
+- **Side panel** (`src/sidepanel`): Connect, Setup (fill from the resume, then the gaps), Home
+  (today's numbers, the three run buttons, the live run, the queue), Questions, Decisions,
+  Review, Settings (rename, sign out, allow trusted clicks, version, copy debug log).
+- **Tests** (`extension/test`, jsdom, `npm run test:extension`): modal anchoring, the
+  single-control label rule, radio questions, field collection skipping filled fields, actions
+  firing input and change, a full job on a synthetic modal (fills, unticks Follow, submits, never
+  clicks the job page's Save), the tracker count, the URL allowlist, `sleep` and `until`.
+
 ## Deviations from the plan
 
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
@@ -217,6 +251,33 @@ Smoke test, 4 Oct 2026 (`deepseek-flash` for both tiers, through the OpenAI SDK 
   dismissed is skipped; one whose questions were all answered meanwhile is retried later.
 - A question answered once but asked again (the saved answer did not settle it) is reopened.
 
+- The zip is written to `public/downloads/aupply-chrome.zip`, not `client/public/downloads/`:
+  Vite's root here is the repo root, so it serves `public/`, and `vite.config.ts` may only gain
+  the one proxy line. `.gitignore` has `public/downloads/`.
+- The remote-code guard allows two inert hosts that appear only inside library strings in the
+  side panel bundle: `www.w3.org` (XML namespaces) and `react.dev` (React's production error
+  links). Neither is ever fetched.
+- An extra npm script, `test:extension` (`node --import tsx --test extension/test/*.test.ts`),
+  runs section 13.2's tests.
+- `deepText` (the success message and the daily-limit dialog) reads the page's own text and every
+  shadow root. The MCP engine's `li_dom` starts its walk at `document`, whose `textContent` is
+  always null, so it reads shadow roots only (the plan's parity row says "search shadow DOM
+  too"). Worth checking in the MCP engine (it is frozen for this build; see open issues).
+- Trusted clicks are requested by `cs/clickRequest` and answered in its response, not by a
+  separate `trustedClickDone` message. Without the permission (or when it fails) the side panel
+  asks the user for the click and the job waits up to 3 minutes.
+- On a page whose verdict is `protected` or `needs_input` the job stops at once (the MCP engine
+  first picked a typeahead and clicked the modal's Save).
+- The numeric repair in the extension rounds a decimal and keeps a lone number; the server sends
+  numbers for number fields to begin with.
+- `CHECKPOINT` and `LOGGED_OUT` pause the run (with the side panel's message and a Resume button)
+  rather than ending it, as section 11.5 describes for pauses.
+- `jobIdOf` also reads `currentJobId=` (a job page LinkedIn may land on).
+
 ## Open issues
 
-None so far.
+- The MCP engine's `deepText` reads shadow roots only (above). If LinkedIn ever shows the
+  success message outside a shadow root, the MCP channel reports UNCONFIRMED where the extension
+  reports SENT. Raise with the user; the MCP is frozen for this build.
+
+

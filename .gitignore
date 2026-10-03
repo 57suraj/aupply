@@ -8,4 +8,4 @@ dist/
 
 # Chrome extension build output (built on every deploy)
 extension/dist/
-client/public/downloads/
+public/downloads/

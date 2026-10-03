@@ -9,13 +9,15 @@
     "dev:client": "vite",
     "dev:ext": "tsx watch src/extension/server/dev.ts",
     "dev": "concurrently -n server,ext,client -c cyan,yellow,magenta \"npm run dev:server\" \"npm run dev:ext\" \"npm run dev:client\"",
-    "build": "npm run build:engines && tsc && vite build",
+    "build": "npm run build:engines && npm run build:extension && tsc && vite build",
     "start": "NODE_ENV=production node dist/server.js",
     "typecheck": "tsc --noEmit",
     "e2e": "node scripts/e2e.mjs",
     "e2e:ext": "node scripts/e2e-ext.mjs",
     "ai:smoke": "tsx scripts/ai-smoke.mjs",
-    "build:engines": "node scripts/build-engines.mjs"
+    "build:engines": "node scripts/build-engines.mjs",
+    "build:extension": "node extension/scripts/build.mjs",
+    "test:extension": "node --import tsx --test extension/test/*.test.ts"
   },
   "keywords": [
     "mcp",
@@ -43,7 +45,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/chrome": "^0.3.4",
     "@types/express": "^5.0.3",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22.15.34",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -51,6 +55,7 @@
     "autoprefixer": "^10.6.1",
     "concurrently": "^10.0.5",
     "esbuild": "^0.28.2",
+    "jsdom": "^29.1.1",
     "jszip": "^3.10.2",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.19",

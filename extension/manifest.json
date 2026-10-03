@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Aupply",
+  "version": "0.1.0",
+  "description": "Applies to LinkedIn Easy Apply jobs for you, using your Aupply profile.",
+  "minimum_chrome_version": "120",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Aupply" },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "permissions": ["storage", "alarms", "sidePanel", "notifications", "tabGroups"],
+  "optional_permissions": ["debugger"],
+  "host_permissions": ["https://www.linkedin.com/*", "https://aupply.vercel.app/*"],
+  "content_scripts": [
+    { "matches": ["https://www.linkedin.com/*"], "js": ["content.js"], "run_at": "document_idle", "all_frames": false }
+  ]
+}
