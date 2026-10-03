@@ -24,6 +24,7 @@ export default defineConfig({
       "/token": "http://localhost:3000",
       "/register": "http://localhost:3000",
       "/revoke": "http://localhost:3000",
+      "/ext": "http://localhost:3001",
     },
   },
 });

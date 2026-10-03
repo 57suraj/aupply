@@ -5,3 +5,7 @@ dist/
 .DS_Store
 .vercel
 .env*.local
+
+# Chrome extension build output (built on every deploy)
+extension/dist/
+client/public/downloads/

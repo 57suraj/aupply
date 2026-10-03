@@ -14,7 +14,7 @@ still describes the MCP channel and stays true for it.
 |---|---|
 | 0. Orientation | done: MCP e2e baseline 153 passed |
 | 1. Database | done |
-| 2. `/ext` function, auth, devices | not started |
+| 2. `/ext` function, auth, devices | done: e2e-ext sections 1 to 4 |
 | 3. AI module | not started |
 | 4. Draft pipeline | not started |
 | 5. Apply pipeline | not started |
@@ -39,9 +39,44 @@ which have had no traffic yet.
 `src/db/database.types.ts` gained the new tables and functions where the generator places
 them; nothing else in it changed.
 
+## The /ext function (phase 2)
+
+`api/ext.ts` exports `src/extension/server/app.ts`, an Express 5 app under `/ext/v1`, routed by
+one rewrite in `vercel.json` (before the SPA fallback), with `maxDuration` 60 and the daily
+cleanup cron (21:30 UTC, 03:00 IST). Locally `npm run dev:ext` listens on 3001 and Vite proxies
+`/ext` to it.
+
+- Errors: `{ error: { code, message, ...extra } }` (`server/http.ts`). `AppError`s from imported
+  MCP services map by status; 5xx never carries internals.
+- Version gate: every device endpoint needs `X-Aupply-Ext-Version` at or above
+  `EXT_MIN_VERSION`, else 426 with `min_version` and `download_url` (the zip's absolute URL).
+- Device auth (`auth/`): pairing, poll, refresh and revoke as section 7.3. Access tokens are
+  HS256 with `EXT_JWT_SECRET`, `iss = ISSUER`, `aud = ${BASE_URL}/ext`, `did` claim.
+- Housekeeping: `services/cleanup.ts` (cron and lazily per user), `services/events.ts`
+  (`ext_events`, 2KB per event), `services/leases.ts` (issue, complete, expire).
+
+Vercel environment (set 4 Oct with the Vercel MCP): `EXT_JWT_SECRET` and `CRON_SECRET`
+(sensitive, generated, Production and Preview only: Vercel does not allow sensitive variables in
+Development, the same as the existing `JWT_SECRET`), `AI_BASE_URL`, `AI_FAST_MODEL`,
+`AI_SMART_MODEL`, `EXT_AI_DAILY_BUDGET_MICRO_USD`, `EXT_MIN_VERSION=0.1.0`,
+`EXT_LINKEDIN_ENABLED=true` (plain, all three). `DEEPSEEK_API_KEY` is the user's to add.
+
+Testing: `npm run e2e:ext` against a local server started as
+`MCP_BASE_URL=http://localhost:3101 EXT_PORT=3101 AI_FAKE=1 EXT_MIN_VERSION=0.1.0 CRON_SECRET=e2e-cron-secret npx tsx src/extension/server/dev.ts`
+(the plan's command plus a minimum version, so the gate is tested, and a known cron secret).
+
 ## Deviations from the plan
 
-None so far.
+- Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
+  queue shared by `/me`, `apply/next` and the queue view), `services/cleanup.ts` (cron and lazy
+  cleanup).
+- `/me`'s `live_run` also says `this_device`, so the side panel can tell its own run from
+  another device's.
+- An approved pairing can still be collected for 10 minutes after its code expires (the user
+  may approve in the last seconds). A poll with an unknown pairing id or a wrong secret is 404.
+- The website endpoints use the imported `requireUser`, whose 401 body is the MCP's
+  `{ error: "..." }` string, not the contract's object. The website's helper handles both.
+- Ending a stale run (cleanup) also closes its open leases as `ABORTED`.
 
 ## Open issues
 

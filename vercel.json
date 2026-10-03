@@ -40,8 +40,23 @@
       "destination": "/api"
     },
     {
+      "source": "/ext/:path*",
+      "destination": "/api/ext"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/ext.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/ext/v1/cron/cleanup",
+      "schedule": "30 21 * * *"
     }
   ]
 }

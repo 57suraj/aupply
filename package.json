@@ -7,11 +7,13 @@
   "scripts": {
     "dev:server": "tsx watch src/server.ts",
     "dev:client": "vite",
-    "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:ext": "tsx watch src/extension/server/dev.ts",
+    "dev": "concurrently -n server,ext,client -c cyan,yellow,magenta \"npm run dev:server\" \"npm run dev:ext\" \"npm run dev:client\"",
     "build": "npm run build:engines && tsc && vite build",
     "start": "NODE_ENV=production node dist/server.js",
     "typecheck": "tsc --noEmit",
     "e2e": "node scripts/e2e.mjs",
+    "e2e:ext": "node scripts/e2e-ext.mjs",
     "build:engines": "node scripts/build-engines.mjs"
   },
   "keywords": [
