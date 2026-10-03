@@ -361,6 +361,517 @@ export type Database = {
         }
         Relationships: []
       }
+      ext_ai_usage: {
+        Row: {
+          cost_micro_usd: number
+          day: string
+          input_cache_hit: number
+          input_cache_miss: number
+          model: string
+          output_tokens: number
+          purpose: string
+          requests: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cost_micro_usd?: number
+          day: string
+          input_cache_hit?: number
+          input_cache_miss?: number
+          model: string
+          output_tokens?: number
+          purpose: string
+          requests?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cost_micro_usd?: number
+          day?: string
+          input_cache_hit?: number
+          input_cache_miss?: number
+          model?: string
+          output_tokens?: number
+          purpose?: string
+          requests?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ext_devices: {
+        Row: {
+          created_at: string
+          ext_version: string | null
+          id: string
+          last_seen_at: string | null
+          metadata: Json
+          name: string
+          prev_refresh_token_hash: string | null
+          refresh_token_expires_at: string | null
+          refresh_token_hash: string | null
+          revoked_at: string | null
+          rotated_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ext_version?: string | null
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          name: string
+          prev_refresh_token_hash?: string | null
+          refresh_token_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          rotated_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ext_version?: string | null
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          name?: string
+          prev_refresh_token_hash?: string | null
+          refresh_token_expires_at?: string | null
+          refresh_token_hash?: string | null
+          revoked_at?: string | null
+          rotated_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ext_drafts: {
+        Row: {
+          created_at: string
+          device_id: string
+          id: string
+          platform: string
+          posted_within: string
+          run_id: string
+          state: Json
+          stats: Json
+          status: string
+          stop_reason: string | null
+          target: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          id?: string
+          platform?: string
+          posted_within: string
+          run_id: string
+          state?: Json
+          stats?: Json
+          status?: string
+          stop_reason?: string | null
+          target: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          id?: string
+          platform?: string
+          posted_within?: string
+          run_id?: string
+          state?: Json
+          stats?: Json
+          status?: string
+          stop_reason?: string | null
+          target?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_drafts_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "ext_devices"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "ext_drafts_run_id_user_id_fkey"
+            columns: ["run_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ext_events: {
+        Row: {
+          created_at: string
+          data: Json
+          device_id: string | null
+          id: string
+          level: string
+          run_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          device_id?: string | null
+          id?: string
+          level: string
+          run_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          device_id?: string | null
+          id?: string
+          level?: string
+          run_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_events_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "ext_devices"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "ext_events_run_id_user_id_fkey"
+            columns: ["run_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ext_leases: {
+        Row: {
+          application_id: string | null
+          completed_at: string | null
+          detail: Json
+          device_id: string
+          expires_at: string
+          external_id: string | null
+          id: string
+          issued_at: string
+          kind: string
+          not_before: string
+          payload: Json
+          platform: string
+          result: string | null
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          application_id?: string | null
+          completed_at?: string | null
+          detail?: Json
+          device_id: string
+          expires_at: string
+          external_id?: string | null
+          id?: string
+          issued_at?: string
+          kind: string
+          not_before: string
+          payload?: Json
+          platform: string
+          result?: string | null
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          application_id?: string | null
+          completed_at?: string | null
+          detail?: Json
+          device_id?: string
+          expires_at?: string
+          external_id?: string | null
+          id?: string
+          issued_at?: string
+          kind?: string
+          not_before?: string
+          payload?: Json
+          platform?: string
+          result?: string | null
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_leases_application_id_user_id_fkey"
+            columns: ["application_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "ext_leases_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "ext_devices"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "ext_leases_run_id_user_id_fkey"
+            columns: ["run_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ext_pairings: {
+        Row: {
+          approved_at: string | null
+          consumed_at: string | null
+          created_at: string
+          denied_at: string | null
+          device_id: string | null
+          device_name: string
+          expires_at: string
+          ext_version: string | null
+          id: string
+          last_polled_at: string | null
+          metadata: Json
+          poll_secret_hash: string
+          user_code: string
+          user_id: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          denied_at?: string | null
+          device_id?: string | null
+          device_name: string
+          expires_at: string
+          ext_version?: string | null
+          id?: string
+          last_polled_at?: string | null
+          metadata?: Json
+          poll_secret_hash: string
+          user_code: string
+          user_id?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          denied_at?: string | null
+          device_id?: string | null
+          device_name?: string
+          expires_at?: string
+          ext_version?: string | null
+          id?: string
+          last_polled_at?: string | null
+          metadata?: Json
+          poll_secret_hash?: string
+          user_code?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_pairings_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "ext_devices"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ext_questions: {
+        Row: {
+          answer_id: string | null
+          answered_at: string | null
+          created_at: string
+          field_type: string | null
+          id: string
+          key: string | null
+          kind: string
+          last_seen_at: string
+          metadata: Json
+          options: Json | null
+          question: string
+          question_norm: string
+          status: string
+          times_seen: number
+          updated_at: string
+          user_id: string
+          waiting: Json
+        }
+        Insert: {
+          answer_id?: string | null
+          answered_at?: string | null
+          created_at?: string
+          field_type?: string | null
+          id?: string
+          key?: string | null
+          kind: string
+          last_seen_at?: string
+          metadata?: Json
+          options?: Json | null
+          question: string
+          question_norm: string
+          status?: string
+          times_seen?: number
+          updated_at?: string
+          user_id: string
+          waiting?: Json
+        }
+        Update: {
+          answer_id?: string | null
+          answered_at?: string | null
+          created_at?: string
+          field_type?: string | null
+          id?: string
+          key?: string | null
+          kind?: string
+          last_seen_at?: string
+          metadata?: Json
+          options?: Json | null
+          question?: string
+          question_norm?: string
+          status?: string
+          times_seen?: number
+          updated_at?: string
+          user_id?: string
+          waiting?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_questions_answer_id_user_id_fkey"
+            columns: ["answer_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "answers"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      ext_resume_profiles: {
+        Row: {
+          content_hash: string
+          created_at: string
+          id: string
+          model: string
+          profile: Json
+          prompt_version: string
+          resume_id: string
+          user_id: string
+        }
+        Insert: {
+          content_hash: string
+          created_at?: string
+          id?: string
+          model: string
+          profile: Json
+          prompt_version: string
+          resume_id: string
+          user_id: string
+        }
+        Update: {
+          content_hash?: string
+          created_at?: string
+          id?: string
+          model?: string
+          profile?: Json
+          prompt_version?: string
+          resume_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ext_resume_profiles_resume_id_user_id_fkey"
+            columns: ["resume_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      job_postings: {
+        Row: {
+          ai_facts: Json | null
+          ai_model: string | null
+          ai_version: string | null
+          ats: string | null
+          closed_seen_at: string | null
+          company: string | null
+          created_at: string
+          external_id: string
+          facts: Json
+          first_seen_at: string
+          first_seen_by: string | null
+          jd_fetched_at: string | null
+          jd_hash: string | null
+          jd_text: string | null
+          last_seen_at: string
+          location: string | null
+          platform: string
+          seniority_level: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          ai_facts?: Json | null
+          ai_model?: string | null
+          ai_version?: string | null
+          ats?: string | null
+          closed_seen_at?: string | null
+          company?: string | null
+          created_at?: string
+          external_id: string
+          facts?: Json
+          first_seen_at?: string
+          first_seen_by?: string | null
+          jd_fetched_at?: string | null
+          jd_hash?: string | null
+          jd_text?: string | null
+          last_seen_at?: string
+          location?: string | null
+          platform: string
+          seniority_level?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ai_facts?: Json | null
+          ai_model?: string | null
+          ai_version?: string | null
+          ats?: string | null
+          closed_seen_at?: string | null
+          company?: string | null
+          created_at?: string
+          external_id?: string
+          facts?: Json
+          first_seen_at?: string
+          first_seen_by?: string | null
+          jd_fetched_at?: string | null
+          jd_hash?: string | null
+          jd_text?: string | null
+          last_seen_at?: string
+          location?: string | null
+          platform?: string
+          seniority_level?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       oauth_authorization_codes: {
         Row: {
           client_id: string
@@ -908,6 +1419,34 @@ export type Database = {
           p_companies: string[]
           p_external_ids: string[]
           p_platform: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ext_add_ai_usage: {
+        Args: {
+          p_cost: number
+          p_day: string
+          p_hit: number
+          p_miss: number
+          p_model: string
+          p_out: number
+          p_purpose: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      ext_issue_lease: {
+        Args: {
+          p_application_id: string
+          p_device_id: string
+          p_external_id: string
+          p_kind: string
+          p_not_before: string
+          p_payload: Json
+          p_platform: string
+          p_run_id: string
+          p_ttl_seconds: number
           p_user_id: string
         }
         Returns: Json
