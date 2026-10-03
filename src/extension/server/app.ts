@@ -13,6 +13,9 @@
  *     POST /session/start  /session/heartbeat  /session/end  POST /linkedin/tracker
  *     POST /linkedin/draft/start  /linkedin/draft/next  GET /linkedin/queue
  *     POST /linkedin/queue/:id/skip  GET|POST /linkedin/decisions
+ *     POST /linkedin/apply/next  /linkedin/apply/answers  /linkedin/apply/result
+ *     GET /questions  POST /questions/:id/answer  /questions/:id/dismiss
+ *     GET /answers/review  POST /answers/:id/confirm
  *   Cron (Bearer CRON_SECRET): GET /cron/cleanup
  */
 
@@ -23,6 +26,10 @@ import { requireUser, sessionUser } from "../../auth/supabaseUser.js";
 import { pollPairing, refreshTokens, startPairing, webPairDecide, webPairInfo } from "../auth/pairing.js";
 import { deviceOf, requireDevice } from "../auth/requireDevice.js";
 import {
+  AnswersRequest,
+  ApplyNextRequest,
+  ApplyResultRequest,
+  ConfirmRequest,
   DecisionsRequest,
   DraftNextRequest,
   DraftStartRequest,
@@ -34,6 +41,7 @@ import {
   TrackerRequest,
   PairPollRequest,
   PairStartRequest,
+  QuestionAnswerRequest,
   RefreshRequest,
   RenameDeviceRequest,
   WebPairDecision,
@@ -42,11 +50,12 @@ import {
 } from "../contract.js";
 import { defaultWithin } from "../../platforms/config.js";
 import { getPreferences } from "../../services/candidate.js";
-import { recordTracker } from "../services/apply.js";
+import { applyNext, applyResult, recordTracker } from "../services/apply.js";
 import { cleanupAll, requireCron } from "../services/cleanup.js";
 import { nextDraft, startDraft } from "../services/draft.js";
 import { queueView, skipQueued } from "../services/queue.js";
-import { decide, listDecisions } from "../services/questions.js";
+import { answerPage } from "../services/formAnswers.js";
+import { answerQuestion, confirmAnswer, decide, dismissQuestion, listDecisions, listQuestions, listReview } from "../services/questions.js";
 import { endSession, heartbeat, startSession } from "../services/sessions.js";
 import { listDevices, renameDevice, revokeDevice } from "../services/devices.js";
 import { logClientEvents } from "../services/events.js";
@@ -180,6 +189,30 @@ v1.get("/linkedin/decisions", ...device, async (_req, res) => {
 });
 v1.post("/linkedin/decisions", ...device, async (req, res) => {
   res.json(await decide(deviceOf(res).userId, DecisionsRequest.parse(req.body).items));
+});
+v1.post("/linkedin/apply/next", ...device, async (req, res) => {
+  res.json(await applyNext(deviceOf(res), ApplyNextRequest.parse(req.body)));
+});
+v1.post("/linkedin/apply/answers", ...device, async (req, res) => {
+  res.json(await answerPage(deviceOf(res), AnswersRequest.parse(req.body)));
+});
+v1.post("/linkedin/apply/result", ...device, async (req, res) => {
+  res.json(await applyResult(deviceOf(res), ApplyResultRequest.parse(req.body)));
+});
+v1.get("/questions", ...device, async (_req, res) => {
+  res.json(await listQuestions(deviceOf(res).userId));
+});
+v1.post("/questions/:id/answer", ...device, async (req, res) => {
+  res.json(await answerQuestion(deviceOf(res).userId, uuidParam(req), QuestionAnswerRequest.parse(req.body).answer));
+});
+v1.post("/questions/:id/dismiss", ...device, async (req, res) => {
+  res.json(await dismissQuestion(deviceOf(res).userId, uuidParam(req)));
+});
+v1.get("/answers/review", ...device, async (_req, res) => {
+  res.json(await listReview(deviceOf(res).userId));
+});
+v1.post("/answers/:id/confirm", ...device, async (req, res) => {
+  res.json(await confirmAnswer(deviceOf(res).userId, uuidParam(req), ConfirmRequest.parse(req.body ?? {}).answer));
 });
 v1.post("/events", ...device, async (req, res) => {
   const d = deviceOf(res);

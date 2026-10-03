@@ -305,6 +305,9 @@ async function main() {
 
   await sessionsSection(userToken, dev);
   await draftSection(dev);
+  await applySection(dev);
+  section("Privacy");
+  expect("no response body ever carried the user id", !seenBodies.some((b) => b.includes(userId)), null);
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +567,267 @@ async function draftSection(dev) {
   expect("session/end counts the run's jobs", r.status === 200 && r.body.counts.discovered === 3 && r.body.counts.skipped >= 7, r.body);
   await clearBlocks();
   expect("no response body ever carried the user id (first_seen_by never leaves the server)", !seenBodies.some((b) => b.includes(userId)), null);
+}
+
+// ---------------------------------------------------------------------------
+// 7 to 10. Apply: leases and pacing, form answers, results, questions, review, cap, cron
+// ---------------------------------------------------------------------------
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const monthSel = (fid, index) => ({ fid, kind: "date_select", label: "", options: ["Month", ...MONTHS], option_values_empty: [true, ...MONTHS.map(() => false)], required: false, date: { part: "month", index, context: "education" } });
+const yearSel = (fid, index) => {
+  const years = ["2018", "2019", "2020", "2021", "2022", "2023", "2024"];
+  return { fid, kind: "date_select", label: "", options: ["Year", ...years], option_values_empty: [true, ...years.map(() => false)], required: false, date: { part: "year", index, context: "education" } };
+};
+const sel = (fid, label, options, required = true) => ({ fid, kind: "select", label, options: ["Select an option", ...options], option_values_empty: [true, ...options.map(() => false)], required });
+
+async function applySection(dev) {
+  const B = 500_000_000_000 + Math.floor(Math.random() * 1e8) * 100;
+  const jobs = {
+    A: ["Backend Engineer", "Rho Tech", 99], B: ["Backend Engineer", "Sigma Labs", 98], C: ["Backend Developer", "Tau Systems", 97],
+    D: ["Software Engineer", "Upsilon Apps", 96], E: ["Backend Engineer", "Phi Works", 95], J: ["Backend Engineer", "Alpha Two", 94],
+    F: ["Backend Engineer", "Chi Apps", 93], G: ["Backend Engineer", "Psi Cloud", 92], H: ["Backend Engineer", "Omega Soft", 91], K: ["Backend Engineer", "Kappa Data", 90],
+    V: ["Backend Engineer", "Vega Labs", 89],
+  };
+  const ids = Object.fromEntries(Object.keys(jobs).map((k, i) => [k, String(B + i + 1)]));
+  testJobIds.push(...Object.values(ids));
+  // A clean queue: the draft section's jobs leave it, these ten join it.
+  await admin.from("applications").update({ status: "skipped", status_reason: "e2e" }).eq("user_id", userId).eq("status", "discovered");
+  const { data: inserted } = await admin
+    .from("applications")
+    .insert(
+      Object.entries(jobs).map(([k, [title, company, score]]) => ({
+        user_id: userId, platform: "linkedin", external_id: ids[k], job_url: `https://www.linkedin.com/jobs/view/${ids[k]}/`, company_name: company, job_title: title,
+        status: "discovered", match_score: score, source: "sweep", experience_min_years: 1,
+        metadata: { w: "1h", agg: 0, lvl: null, pay: null, sm: [], yu: 0, needs_decision: false, channel: "extension" },
+      }))
+    )
+    .select("id, external_id");
+  const appId = Object.fromEntries(Object.entries(ids).map(([k, ext]) => [k, inserted?.find((r) => r.external_id === ext)?.id]));
+  const app = async (k) => (await admin.from("applications").select("status, status_reason, applied_by, metadata").eq("id", appId[k]).single()).data;
+  const park = (k) => admin.from("applications").update({ status: "skipped", status_reason: "e2e" }).eq("id", appId[k]);
+
+  section("7. Apply: leases and pacing");
+  let r = await http("POST", "/session/start", { token: dev.access, json: { mode: "apply", posted_within: "1h" } });
+  const runId = r.body?.run_id;
+  expect("session/start for applying", r.body?.type === "started" && r.body.plan.apply === true && r.body.plan.draft === false, r.body);
+  r = await http("POST", "/linkedin/tracker", { token: dev.access, json: { lease_id: r.body.first.lease_id, count: 10 } });
+  expect("the run's first tracker read", r.status === 200, r.body);
+  const next = () => http("POST", "/linkedin/apply/next", { token: dev.access, json: { run_id: runId } });
+  const result = (lease, res) => http("POST", "/linkedin/apply/result", { token: dev.access, json: { lease_id: lease, result: res } });
+  const answers = (lease, fields, company = "", index = 0) => http("POST", "/linkedin/apply/answers", { token: dev.access, json: { lease_id: lease, page: { progress: "50%", index }, company, fields } });
+
+  r = await next();
+  const LA = r.body;
+  expect(
+    "apply/next: the best queued job, with what the extension needs",
+    LA?.type === "job" && LA.job.id === ids.A && LA.job.url === `https://www.linkedin.com/jobs/view/${ids.A}/` && LA.job.company === "Rho Tech" && LA.job.title === "Backend Engineer" &&
+      LA.page_wait_ms === 6000 && LA.country === "India" && LA.attempt === 1 && LA.verify === false,
+    LA
+  );
+  r = await next();
+  const { count: openCount } = await admin.from("ext_leases").select("id", { count: "exact", head: true }).eq("user_id", userId).is("completed_at", null);
+  expect("asking again returns the same open lease, never a second one", r.body?.lease_id === LA.lease_id && openCount === 1, { again: r.body?.lease_id, openCount });
+  r = await http("POST", "/linkedin/draft/start", { token: dev.access, json: { run_id: runId } });
+  expect("a draft while an apply lease is open waits (one open lease per user)", r.body?.type === "started" && r.body.order.type === "wait" && r.body.order.reason === "lease_busy", r.body);
+
+  section("8. Form answers");
+  const pageA = [
+    sel("f1", "What is your notice period?", ["Immediate", "15 days", "1 month", "2 months"]),
+    { fid: "f2", kind: "number", label: "How many years of work experience do you have?", required: true },
+    sel("f3", "How did you hear about us?", ["Referral", "LinkedIn", "Other"]),
+    sel("f4", "Gender", ["Male", "Female", "Decline to self-identify"], false),
+    { fid: "f5", kind: "checkbox", label: "I agree to the privacy policy", required: true },
+    { fid: "f6", kind: "checkbox", label: "Send me marketing emails about new jobs", required: false },
+    { fid: "f7", kind: "checkbox", label: "Follow Rho Tech to stay up to date with their page", required: false },
+    { fid: "f8", kind: "radio", label: "Resume_Asha_Testwala.pdf", options: ["Resume_Asha_Testwala.pdf", "Resume_old.pdf"], required: true },
+    monthSel("f9a", 0), yearSel("f9b", 1), monthSel("f9c", 2), yearSel("f9d", 3),
+    { fid: "f10", kind: "typeahead", label: "City", required: true },
+    { fid: "f11", kind: "textarea", label: "Why do you want to join Rho Tech?", required: true, max_length: 1000 },
+  ];
+  r = await answers(LA.lease_id, pageA, "Rho Tech");
+  const act = Object.fromEntries((r.body?.actions ?? []).map((a) => [a.fid, a]));
+  expect("a page the rules can fill: verdict fill, AI used for the long-form question", r.body?.verdict === "fill" && r.body.ai_used === true && !r.body.questions, r.body);
+  expect("notice period select -> the band that holds 30 days", act.f1?.do === "choose" && act.f1.index === 3, act.f1);
+  expect("years number field -> a whole number", act.f2?.do === "set" && act.f2.value === "2", act.f2);
+  expect("how did you hear -> LinkedIn", act.f3?.do === "choose" && act.f3.index === 2, act.f3);
+  expect("EEO select -> decline", act.f4?.do === "choose" && act.f4.index === 3, act.f4);
+  expect("consent box ticked; marketing and Follow never", act.f5?.do === "tick" && act.f6?.do === "leave" && act.f7?.do === "leave", [act.f5, act.f6, act.f7]);
+  expect("resume radio -> the first", act.f8?.do === "choose" && act.f8.index === 0, act.f8);
+  expect("education date selects -> August 2019 to May 2023", act.f9a?.index === 8 && act.f9b?.index === 2 && act.f9c?.index === 5 && act.f9d?.index === 6, [act.f9a, act.f9b, act.f9c, act.f9d]);
+  expect("city typeahead -> the city (the extension picks the suggestion)", act.f10?.do === "set" && act.f10.value === "Pune", act.f10);
+  expect("'Why do you want to join?' -> an AI answer", act.f11?.do === "set" && act.f11.value.length > 20, act.f11);
+  const { data: aiSaved } = await admin.from("answers").select("id, status, source, metadata").eq("user_id", userId).ilike("question", "Why do you want to join Rho Tech?");
+  expect("...saved as a provisional answer from the extension's AI", aiSaved?.length === 1 && aiSaved[0].status === "provisional" && aiSaved[0].metadata?.origin === "extension_ai", aiSaved);
+
+  section("9. Results");
+  r = await result(LA.lease_id, { r: "SENT", hid: true, trace: ["0%", "50%"] });
+  // The cap counts the day's tracker movement too: 7 at the draft's read, 10 at this run's (3 applications by hand).
+  expect("SENT -> applied, continue; the cap counts the tracker's movement", r.body?.status === "applied" && r.body.next.type === "continue" && r.body.cap.left === 32, r.body);
+  let a = await app("A");
+  expect("...applied_by aupply, engine ext@<version>, hidden flag kept", a?.status === "applied" && a.applied_by === "aupply" && a.metadata.engine === `ext@${VERSION}` && a.metadata.hid === 1 && a.metadata.last_result === "SENT", a);
+  const { data: qaRows } = await admin.from("application_questions").select("question, answer, answer_id, metadata").eq("application_id", appId.A);
+  expect("...its Q&A is logged in application_questions", qaRows?.length === 12 && qaRows.some((q) => q.question === "Education end year" && q.answer === "2023") && qaRows.every((q) => q.metadata.origin === "extension") && qaRows.some((q) => q.metadata.source === "ai" && q.answer_id === aiSaved?.[0]?.id), qaRows?.map((q) => [q.question, q.metadata.source]));
+  const again = await result(LA.lease_id, { r: "SENT" });
+  const { count: qaCount } = await admin.from("application_questions").select("id", { count: "exact", head: true }).eq("application_id", appId.A);
+  expect("posting the same result again: the stored outcome, nothing recorded twice", again.body?.status === "applied" && again.body.next.type === "continue" && qaCount === qaRows?.length, { again: again.body, qaCount });
+
+  r = await next();
+  const LB = r.body;
+  const { data: la } = await admin.from("ext_leases").select("completed_at").eq("id", LA.lease_id).single();
+  expect("the next job waits at least 30 seconds after the last one finished", LB?.job?.id === ids.B && Date.parse(LB.not_before) - Date.parse(la.completed_at) >= 29_900, { nb: LB?.not_before, done: la?.completed_at });
+  r = await result(LB.lease_id, { r: "NO_EASY_APPLY" });
+  expect("NO_EASY_APPLY on a strong match -> saved for the user", r.body?.status === "saved" && /strong match/.test(r.body.reason), r.body);
+
+  r = await next();
+  const LC = r.body;
+  r = await result(LC.lease_id, { r: "STALL", errs: ["Please enter a valid answer"], trace: ["50%", "50%"] });
+  a = await app("C");
+  expect("STALL once -> the job stays queued, one failure, retried later", r.body?.status === "discovered" && a.metadata.fails === 1 && Date.parse(a.metadata.retry_after) > Date.now() + 10 * 60_000 && a.metadata.errs?.[0] === "Please enter a valid answer", a);
+
+  r = await next();
+  const LD = r.body;
+  expect("a job waiting for its retry is not leased", LD?.job?.id === ids.D, LD);
+  const dlField = { fid: "d1", kind: "radio", label: "Do you have a valid driver's license?", options: ["Yes", "No"], required: true };
+  r = await answers(LD.lease_id, [dlField], "Upsilon Apps");
+  const dlQ = r.body?.questions?.[0];
+  expect("a driver's license question -> needs_input, never AI", r.body?.verdict === "needs_input" && r.body.ai_used === false && dlQ?.kind === "needs_input" && r.body.actions.some((x) => x.fid === "d1" && x.do === "leave"), r.body);
+  r = await result(LD.lease_id, { r: "NEEDS_INPUT", need: [dlField.label], question_ids: [dlQ.id] });
+  a = await app("D");
+  expect("NEEDS_INPUT -> queued but waiting on the user", r.body?.status === "discovered" && a.metadata.needs_input?.join() === dlQ.id, a);
+
+  r = await next();
+  const LE = r.body;
+  expect("...and a job waiting on the user is not leased", LE?.job?.id === ids.E, LE);
+  r = await answers(LE.lease_id, [{ fid: "e1", kind: "text", label: "Date of birth", required: true }], "Phi Works");
+  const dobQ = r.body?.questions?.[0];
+  expect("a date of birth field -> protected", r.body?.verdict === "protected" && dobQ?.kind === "protected", r.body);
+  const { data: dobRow } = await admin.from("ext_questions").select("key, kind").eq("id", dobQ?.id).single();
+  expect("...an ext_questions row with key dob", dobRow?.key === "dob" && dobRow.kind === "protected", dobRow);
+  r = await result(LE.lease_id, { r: "PROTECTED", need: ["Date of birth"] });
+  expect("PROTECTED -> skipped, naming the fact", r.body?.status === "skipped" && /never invents: Date of birth/.test(r.body.reason), r.body);
+
+  r = await next();
+  const LJ = r.body;
+  const fintech = { fid: "j1", kind: "radio", label: "Do you have experience in the fintech domain?", options: ["Yes", "No"], required: true };
+  r = await answers(LJ.lease_id, [fintech], "Alpha Two");
+  const finQ = r.body?.questions?.[0];
+  expect("an industry domain question -> asked once, never AI", LJ?.job?.id === ids.J && r.body?.verdict === "needs_input" && r.body.ai_used === false, r.body);
+  r = await result(LJ.lease_id, { r: "NEEDS_INPUT", question_ids: [finQ.id] });
+  r = await http("GET", "/questions", { token: dev.access });
+  const q = (id) => r.body?.items?.find((i) => i.id === id);
+  expect("open questions list", q(dlQ.id)?.key === "drivers_license" && q(dlQ.id).options?.join() === "Yes,No" && q(dlQ.id).waiting_count === 1 && q(finQ.id)?.key === "domain.fintech" && q(dobQ.id)?.kind === "protected", r.body);
+  r = await http("GET", "/me", { token: dev.access });
+  expect("/me counts open questions and AI answers to review", r.body?.open_questions === 3 && r.body.provisional_to_review === 1 && r.body.linkedin.queue.waiting_on_you === 2, r.body);
+  r = await http("POST", `/questions/${finQ.id}/dismiss`, { token: dev.access });
+  a = await app("J");
+  expect("dismissing a question skips the jobs waiting on it", r.body?.skipped === 1 && a.status === "skipped" && /needs your answer/.test(a.status_reason), a);
+  r = await http("POST", `/questions/${dlQ.id}/answer`, { token: dev.access, json: { answer: "No" } });
+  expect("answering a question releases the job", r.body?.ok === true && r.body.released === 1, r.body);
+  const { data: dlAns } = await admin.from("answers").select("key, answer, status, source").eq("user_id", userId).eq("key", "drivers_license").single();
+  expect("...saved as the user's own confirmed answer", dlAns?.answer === "No" && dlAns.status === "confirmed" && dlAns.source === "user", dlAns);
+  a = await app("D");
+  expect("...the job no longer waits", a.status === "discovered" && !a.metadata.needs_input, a.metadata);
+  r = await next();
+  const LD2 = r.body;
+  expect("...and is leased again", LD2?.job?.id === ids.D && LD2.attempt === 1, LD2);
+  r = await answers(LD2.lease_id, [dlField], "Upsilon Apps");
+  expect("the saved answer fills the question now", r.body?.verdict === "fill" && r.body.actions[0]?.do === "choose" && r.body.actions[0].index === 1, r.body);
+  r = await result(LD2.lease_id, { r: "SENT" });
+  expect("...SENT", r.body?.status === "applied", r.body);
+
+  r = await next();
+  const LF = r.body;
+  r = await result(LF.lease_id, { r: "RATE_LIMITED" });
+  const { data: lb } = await admin.from("platform_state").select("blocked_until").eq("user_id", userId).eq("platform", "linkedin").single();
+  expect("RATE_LIMITED once -> a 5 minute LinkedIn pause, continue", LF?.job?.id === ids.F && r.body?.next.type === "continue" && Date.parse(lb?.blocked_until) - Date.now() > 4 * 60_000, { r: r.body, lb });
+  r = await next();
+  expect("...apply/next waits out the pause", r.body?.type === "wait" && r.body.reason === "blocked", r.body);
+  await clearBlocks();
+  r = await next();
+  const LG = r.body;
+  expect("...then the run is slower: 8 second page waits", LG?.job?.id === ids.G && LG.page_wait_ms === 8000, LG);
+  r = await result(LG.lease_id, { r: "RATE_LIMITED" });
+  const { data: lb2 } = await admin.from("platform_state").select("blocked_until").eq("user_id", userId).eq("platform", "linkedin").single();
+  expect("RATE_LIMITED twice -> a 180 minute pause and stop", r.body?.next.type === "stop" && r.body.next.reason === "rate_limited" && Date.parse(lb2?.blocked_until) - Date.now() > 170 * 60_000, { r: r.body, lb2 });
+  r = await next();
+  expect("...apply/next ends the run while it lasts", r.body?.type === "done" && r.body.reason === "blocked", r.body);
+  await park("G");
+  await clearBlocks();
+
+  r = await next();
+  const LH = r.body;
+  r = await result(LH.lease_id, { r: "DAILY_LIMIT" });
+  const { data: lb3 } = await admin.from("platform_state").select("blocked_until, block_reason").eq("user_id", userId).eq("platform", "linkedin").single();
+  expect("DAILY_LIMIT -> blocked until the end of the user's day, stop", LH?.job?.id === ids.H && r.body?.next.type === "stop" && r.body.next.reason === "cap" && /daily/i.test(lb3?.block_reason ?? ""), { r: r.body, lb3 });
+  await park("H");
+  await clearBlocks();
+
+  r = await next();
+  expect("a tracker read after 10 apply leases in the run", r.body?.type === "tracker", r.body);
+  await http("POST", "/linkedin/tracker", { token: dev.access, json: { lease_id: r.body.lease_id, count: 12 } });
+
+  await admin.from("applications").update({ metadata: { ...(await app("C")).metadata, retry_after: new Date(Date.now() - 1000).toISOString() } }).eq("id", appId.C);
+  r = await next();
+  const LC2 = r.body;
+  r = await result(LC2.lease_id, { r: "STALL" });
+  a = await app("C");
+  expect("STALL twice -> failed", LC2?.job?.id === ids.C && LC2.attempt === 2 && r.body?.status === "failed" && a.status === "failed", { LC2, a });
+
+  r = await next();
+  const LK = r.body;
+  await admin.from("ext_leases").update({ expires_at: new Date(Date.now() - 1000).toISOString() }).eq("id", LK.lease_id);
+  r = await next();
+  a = await app("K");
+  expect("an apply lease that expired (the extension vanished) counts as ERR, and the job waits for its retry", LK?.job?.id === ids.K && a.metadata.fails === 1 && a.metadata.last_result === "ERR" && a.metadata.e === "lease_expired" && a.metadata.retry_after && r.body?.job?.id === ids.V, { meta: a.metadata, next: r.body });
+  const LV = r.body;
+  r = await result(LV.lease_id, { r: "UNCONFIRMED" });
+  expect("UNCONFIRMED -> unconfirmed", r.body?.status === "unconfirmed", r.body);
+  r = await next();
+  const LV2 = r.body;
+  expect("with the queue empty, an UNCONFIRMED job of this run is visited again to verify it", LV2?.type === "job" && LV2.job.id === ids.V && LV2.verify === true, LV2);
+  r = await result(LV2.lease_id, { r: "ALREADY_APPLIED" });
+  a = await app("V");
+  expect("...ALREADY_APPLIED there settles it as applied (still Aupply's), verified once", r.body?.status === "applied" && a.applied_by === "aupply" && a.metadata.verified === true, a);
+  r = await next();
+  expect("...and the run's last tracker read comes before it ends", r.body?.type === "tracker", r.body);
+  await http("POST", "/linkedin/tracker", { token: dev.access, json: { lease_id: r.body.lease_id, count: 13 } });
+  r = await next();
+  expect("nothing left to apply to -> done (queue_empty)", r.body?.type === "done" && r.body.reason === "queue_empty", r.body);
+
+  const today = new Date().toISOString();
+  await admin.from("applications").insert(
+    Array.from({ length: 35 }, (_, i) => ({
+      user_id: userId, platform: "linkedin", external_id: String(B + 50 + i), company_name: "Cap Filler", job_title: "Backend Engineer",
+      status: "applied", applied_by: "aupply", applied_at: today, metadata: { channel: "extension", engine: `ext@${VERSION}` },
+    }))
+  );
+  testJobIds.push(...Array.from({ length: 35 }, (_, i) => String(B + 50 + i)));
+  await admin.from("applications").update({ metadata: { ...(await app("K")).metadata, retry_after: new Date(Date.now() - 1000).toISOString() } }).eq("id", appId.K);
+  r = await next();
+  expect("the daily cap reached (35 today) -> done (cap)", r.body?.type === "done" && r.body.reason === "cap", r.body);
+
+  section("10. Session end and cleanup cron");
+  r = await http("POST", "/session/end", { token: dev.access, json: { run_id: runId, reason: "cap" } });
+  expect(
+    "session/end: counts, the job saved for the user, provisional answers used",
+    r.body?.counts?.applied === 3 && r.body.counts.saved === 1 && r.body.counts.failed === 1 && r.body.saved_for_you?.[0]?.title === "Backend Engineer" &&
+      r.body.provisional_used?.some((p) => p.question === "Why do you want to join Rho Tech?") && !r.body.tracker_mismatch,
+    r.body
+  );
+  section("Review");
+  r = await http("GET", "/answers/review", { token: dev.access });
+  const review = r.body?.items?.[0];
+  expect("the AI's answers are listed for review", r.body?.items?.length === 1 && review.question === "Why do you want to join Rho Tech?", r.body);
+  r = await http("POST", `/answers/${review?.id}/confirm`, { token: dev.access, json: { answer: "I like what Rho Tech builds and it fits my Node.js work." } });
+  const { data: conf } = await admin.from("answers").select("status, answer").eq("id", review?.id).single();
+  expect("confirm with an edit", r.status === 200 && conf?.status === "confirmed" && conf.answer.startsWith("I like"), conf);
+
+  r = await http("GET", "/cron/cleanup", { version: null });
+  expect("cron without CRON_SECRET -> 401", r.status === 401, r.body);
+  r = await http("GET", "/cron/cleanup", { version: null, headers: { Authorization: "Bearer wrong" } });
+  expect("cron with a wrong secret -> 401", r.status === 401, r.body);
+  r = await http("GET", "/cron/cleanup", { version: null, headers: { Authorization: `Bearer ${CRON_SECRET}` } });
+  expect("cron with CRON_SECRET runs the cleanup", r.status === 200 && r.body.ok === true && typeof r.body.events_deleted === "number", r.body);
 }
 
 async function cleanup() {

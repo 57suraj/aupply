@@ -384,3 +384,124 @@ export type DecisionItem = z.infer<typeof DecisionItem>;
 export const DecisionsResponse = z.object({ items: z.array(DecisionItem) });
 export const DecisionsRequest = z.object({ items: z.array(z.object({ id: z.string().uuid(), keep: z.boolean() })).min(1).max(100) });
 export const DecisionsResult = z.object({ kept: z.number(), dropped: z.number() });
+
+// ---------------------------------------------------------------------------
+// Apply (section 9)
+// ---------------------------------------------------------------------------
+
+export const ApplyNextRequest = z.object({ run_id: z.string().uuid() });
+
+export const JobOrder = z.object({
+  type: z.literal("job"),
+  ...LeaseTimes,
+  job: z.object({ id: z.string(), url: z.string(), company: z.string(), title: z.string() }),
+  page_wait_ms: z.number(),
+  /** The user's country: a city typeahead suggestion must name it. */
+  country: z.string().nullable(),
+  attempt: z.number().int(),
+  /** A visit to confirm an UNCONFIRMED submission (ALREADY_APPLIED settles it). */
+  verify: z.boolean(),
+});
+export type JobOrder = z.infer<typeof JobOrder>;
+
+export const ApplyNextResponse = z.discriminatedUnion("type", [
+  JobOrder,
+  TrackerOrder,
+  WaitOrder,
+  z.object({ type: z.literal("done"), reason: z.enum(["cap", "blocked", "queue_empty"]), until: z.string().nullable().optional(), waiting_on_you: z.number().optional() }),
+  DisabledAnswer,
+]);
+export type ApplyNextResponse = z.infer<typeof ApplyNextResponse>;
+
+/** What the content script reads from one form control (section 9.3). Only fields that still need a value. */
+export const FIELD_KINDS = ["text", "textarea", "number", "select", "radio", "checkbox_group", "checkbox", "date_select", "typeahead"] as const;
+export type FieldKind = (typeof FIELD_KINDS)[number];
+export const Field = z.object({
+  fid: z.string().min(1).max(40),
+  kind: z.enum(FIELD_KINDS),
+  label: z.string().max(500),
+  options: z.array(z.string().max(500)).max(200).optional(),
+  option_values_empty: z.array(z.boolean()).max(200).optional(),
+  required: z.boolean(),
+  max_length: z.number().int().positive().optional(),
+  date: z.object({ part: z.enum(["month", "year"]), index: z.number().int().min(0).max(3), context: z.enum(["education", "experience"]) }).optional(),
+});
+export type Field = z.infer<typeof Field>;
+
+const fid = z.string().min(1).max(40);
+export const Action = z.discriminatedUnion("do", [
+  z.object({ fid, do: z.literal("set"), value: z.string() }),
+  z.object({ fid, do: z.literal("choose"), index: z.number().int().min(0) }),
+  z.object({ fid, do: z.literal("tick") }),
+  z.object({ fid, do: z.literal("leave") }),
+]);
+export type Action = z.infer<typeof Action>;
+
+export const AnswersRequest = z.object({
+  lease_id: z.string().uuid(),
+  page: z.object({ progress: z.string().max(40), index: z.number().int().min(0).max(30) }),
+  company: z.string().max(200),
+  fields: z.array(Field).max(60),
+});
+export type AnswersRequest = z.infer<typeof AnswersRequest>;
+export const QUESTION_KINDS = ["needs_input", "protected"] as const;
+export const AnswersResponse = z.object({
+  verdict: z.enum(["fill", "protected", "needs_input"]),
+  actions: z.array(Action),
+  questions: z.array(z.object({ id: z.string().uuid(), question: z.string(), kind: z.enum(QUESTION_KINDS) })).optional(),
+  ai_used: z.boolean(),
+});
+export type AnswersResponse = z.infer<typeof AnswersResponse>;
+
+/** The MCP engine's codes plus the extension's own (section 9.5). */
+export const RESULT_CODES = [
+  "SENT", "UNCONFIRMED", "ALREADY_APPLIED", "CLOSED", "NO_EASY_APPLY", "NOT_LOADED", "NO_MODAL", "STALL", "NO_BUTTON",
+  "TITLE_MISMATCH", "DAILY_LIMIT", "RATE_LIMITED", "ERR", "PROTECTED", "NEEDS_INPUT", "NEEDS_CLICK", "FOLLOW_STUCK",
+  "CHECKPOINT", "LOGGED_OUT", "USER_NAVIGATED",
+] as const;
+export type ResultCode = (typeof RESULT_CODES)[number];
+export const ApplyResult = z.object({
+  r: z.enum(RESULT_CODES),
+  need: z.array(z.string().max(500)).max(20).optional(),
+  errs: z.array(z.string().max(300)).max(10).optional(),
+  trace: z.array(z.string().max(60)).max(30).optional(),
+  hid: z.boolean().optional(),
+  page: z.object({ title: z.string().max(300), company: z.string().max(200) }).optional(),
+  e: z.string().max(300).optional(),
+  question_ids: z.array(z.string().uuid()).max(20).optional(),
+});
+export type ApplyResult = z.infer<typeof ApplyResult>;
+export const ApplyResultRequest = z.object({ lease_id: z.string().uuid(), result: ApplyResult });
+export const NEXT_TYPES = ["continue", "stop", "pause"] as const;
+export const ApplyResultResponse = z.object({
+  status: z.string().nullable(),
+  reason: z.string().nullable().optional(),
+  cap: z.object({ left: z.number() }),
+  next: z.object({ type: z.enum(NEXT_TYPES), reason: z.string().optional() }),
+});
+export type ApplyResultResponse = z.infer<typeof ApplyResultResponse>;
+
+// ---------------------------------------------------------------------------
+// Questions only the user can answer, and AI answers to review (sections 9.7, 9.9)
+// ---------------------------------------------------------------------------
+
+export const QuestionItem = z.object({
+  id: z.string().uuid(),
+  question: z.string(),
+  kind: z.enum(QUESTION_KINDS),
+  key: z.string().nullable(),
+  field_type: z.string().nullable(),
+  options: z.array(z.string()).nullable(),
+  waiting_count: z.number(),
+  times_seen: z.number(),
+});
+export type QuestionItem = z.infer<typeof QuestionItem>;
+export const QuestionsResponse = z.object({ items: z.array(QuestionItem) });
+export const QuestionAnswerRequest = z.object({ answer: z.string().trim().min(1).max(2000) });
+export const QuestionAnswerResponse = z.object({ ok: z.literal(true), released: z.number() });
+export const QuestionDismissResponse = z.object({ ok: z.literal(true), skipped: z.number() });
+
+export const ReviewItem = z.object({ id: z.string().uuid(), question: z.string(), answer: z.string(), created_at: z.string() });
+export type ReviewItem = z.infer<typeof ReviewItem>;
+export const ReviewResponse = z.object({ items: z.array(ReviewItem) });
+export const ConfirmRequest = z.object({ answer: z.string().trim().min(1).max(5000).optional() });

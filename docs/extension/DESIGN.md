@@ -17,7 +17,7 @@ still describes the MCP channel and stays true for it.
 | 2. `/ext` function, auth, devices | done: e2e-ext sections 1 to 4 |
 | 3. AI module | done in fake mode; smoke test waits on `DEEPSEEK_API_KEY` |
 | 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
-| 5. Apply pipeline | not started |
+| 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
 | 6. The extension | not started |
 | 7. Website pages | not started |
 | 8. Hardening | not started |
@@ -122,6 +122,30 @@ keys, for the prefix cache) and `extractJson` (the first JSON object in the cont
 - Decisions (`services/questions.ts`) and the queue view and skip (`services/queue.ts`) as
   sections 8.6 and 8.7; item ids are the application row's uuid, with `job_id` alongside.
 
+## The apply pipeline (phase 5)
+
+- `apply/next` (`services/apply.ts`), in order: the device's own open apply or tracker lease
+  (a restarted service worker gets the same work back), expired leases settled, a `linkedin`
+  backoff (wait when it ends within 2 hours, else done), Claude at work, the shared cap, a
+  tracker read when due, then the best ready job (or an UNCONFIRMED job of this run to verify),
+  paced 30 to 45 seconds after the user's last apply lease finished.
+- Tracker reads: at the start of every run, after every 10 apply leases in the run, and once
+  more before the run reports `done` when jobs were sent since the last read, so the end-of-run
+  check (tracker moved at least as much as SENT + UNCONFIRMED) judges a fresh count.
+- `apply/answers` (`services/formAnswers.ts` + `linkedin/fields.ts`): the deterministic rules,
+  then saved and past answers, then AI where section 10.6 allows it, then `ext_questions`. Every
+  answer is recorded on the lease per page; the result logs them to `application_questions`
+  (one entry per question; the unlabeled date selects are named "Education start month" and so
+  on).
+- `apply/result`: `mapResult` with the extension's rules on top (saved on a strong match,
+  NEEDS_INPUT, the two rate-limit steps, the daily limit, CHECKPOINT and LOGGED_OUT stop,
+  USER_NAVIGATED pauses, retries go 15 minutes to the back of the queue). The outcome is stored
+  on the lease, so a repeated result gets the same answer and nothing is recorded twice. An
+  expired apply lease is settled as `ERR` (`e: lease_expired`).
+- Questions (`services/questions.ts`): answering saves the user's confirmed answer
+  (`source = 'user'`, with the protected key when there is one) and releases every waiting job
+  at once; dismissing skips them. Review lists the extension AI's provisional answers.
+
 ## Deviations from the plan
 
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
@@ -161,6 +185,22 @@ keys, for the prefix cache) and `extractJson` (the first JSON object in the cont
 - A draft also ends (stop `target`) when the target is reached, and (stop `blocked`) when a
   backoff would last more than 2 hours.
 - Extra file: `services/scoring.ts`.
+
+- A second `apply/next` from the same device while its apply lease is open returns that same
+  lease (so a restarted service worker resumes) instead of `wait lease_busy`. Other work while a
+  lease is open (a draft, another device) still gets `lease_busy`; e2e checks that only one lease
+  is ever open.
+- `apply/next` settles expired leases before it picks a job (the first build settled them inside
+  `issueLease`, after the pick, so the expired job was handed straight back; e2e caught it).
+- One more tracker read before `done` (see the apply section).
+- AI is not asked on a page that has a protected fact (the job is skipped anyway), nor for
+  typeaheads, lone checkboxes or date selects. A page's AI questions run in parallel with a 40
+  second deadline. The saved answers the AI sees leave out protected keys, money (`comp.*`) and
+  any question about salary, phone, email, address, date of birth or ids.
+- `NEEDS_CLICK` and `FOLLOW_STUCK` are retried once (then failed), as section 11.6 describes;
+  `mapResult` alone would leave them as handoffs. A `NEEDS_INPUT` job whose question the user
+  dismissed is skipped; one whose questions were all answered meanwhile is retried later.
+- A question answered once but asked again (the saved answer did not settle it) is reopened.
 
 ## Open issues
 
