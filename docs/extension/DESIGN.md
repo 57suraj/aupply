@@ -18,7 +18,7 @@ still describes the MCP channel and stays true for it.
 | 3. AI module | done; smoke test run 4 Oct (findings below) |
 | 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
 | 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
-| 6. The extension | built (0.1.1); unit tests green; the "Load unpacked" check is the user's |
+| 6. The extension | built (0.1.2 after the first live test); unit tests green |
 | 7. Website pages | built; the end-to-end pairing check is the user's (section 15) |
 | 8. Hardening | done: e2e-ext 181 checks |
 | 9. Documentation | done: this file, and the "Chrome extension channel" section of `CLAUDE.md` |
@@ -231,6 +231,15 @@ card above the resume section; nothing else in `client/src` changed. The client 
   is not ours).
 - Read-through of BUILD-INSTRUCTIONS.md against the code: every rule in sections 2, 6 to 12 is
   implemented as written or listed under deviations here.
+
+## After the first live test (4 Oct)
+
+The user's first runs found four bugs and one red herring; their root causes, fixes, tests and the
+rules for fixing more are in `docs/extension/BUGS.md` (B1 to B6). In short: a qualifying-Yes rule
+for non-quantitative, non-personal yes/no questions (the user's rule); questions are filed under a
+resolver key only when the resolver reads that key back, and the user's answer to a wording is used
+before anything else; rephrased questions are grouped and matched; LinkedIn's number fields get
+numbers, and a refused number is asked for again; a job never waits on a question that is not open.
 
 ## Running it
 

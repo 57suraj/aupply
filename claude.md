@@ -347,3 +347,5 @@ as built, deviations and how to test: `docs/extension/DESIGN.md`.
 - Tests: `npm run e2e:ext`, `npm run test:extension`, `npm run ai:smoke`; `npm run e2e` stays green.
 - A LinkedIn DOM fix in one channel (`extension/src/content/linkedin` or the `li_*` modules): check
   whether the other needs it (BUILD-INSTRUCTIONS.md Appendix A).
+- Live-test bugs, their fixes and the rules for fixing more (the qualifying-Yes rule, keys only the
+  resolver reads back, asked once never again): `docs/extension/BUGS.md`.
