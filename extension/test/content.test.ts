@@ -153,6 +153,20 @@ describe("the Easy Apply modal", () => {
     assert.deepEqual(seen, ["np:input", "np:change", "yrs:input", "yrs:change"]);
   });
 
+  it("treats LinkedIn's numeric text inputs as number fields, and finds the ones it refused (BUGS.md B4)", () => {
+    page(MODAL(`
+      <div><label for="single-line-text-form-component-x-123-numeric">Current ctc:</label><input id="single-line-text-form-component-x-123-numeric" type="text"></div>
+      <div><label for="plain">City</label><input id="plain" type="text"></div>`));
+    const { fields } = m.form.collectFields();
+    assert.equal(fields.find((f) => f.label === "Current ctc:")?.kind, "number");
+    assert.equal(fields.find((f) => f.label === "City")?.kind, "text");
+    page(MODAL(`
+      <div><label for="ctc">Expected CTC:</label><input id="ctc" type="text" value="10 LPA (1000000 INR per year)"><span>Invalid input</span></div>
+      <div><label for="ok">Years</label><input id="ok" type="text" value="2"><span>Invalid input</span></div>`));
+    const refused = m.form.refusedNumbers();
+    assert.deepEqual(refused.fields.map((f) => [f.label, f.kind]), [["Expected CTC:", "number"]]);
+  });
+
   it("reads the tracker's Applied count", () => {
     page(`<main><nav><a>Saved · 12</a><a>Applied · 1,234</a></nav></main>`, "https://www.linkedin.com/jobs-tracker/?stage=applied");
     assert.equal(m.dom.trackerCount(), 1234);

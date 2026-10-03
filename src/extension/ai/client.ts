@@ -84,6 +84,8 @@ export async function callJson<T>(o: {
   userId: string;
   tier: Tier;
   purpose: Purpose;
+  /** Which fake answers in AI_FAKE mode, when it is not the purpose itself (a purpose has several prompts). */
+  fake?: "answer_match";
   system: string;
   /** Stable content first (the prefix cache). */
   user: string;
@@ -93,7 +95,7 @@ export async function callJson<T>(o: {
   if ((await spentToday(o.userId)) >= dailyBudget()) throw new AiBudgetExceeded();
 
   if (aiFake()) {
-    const parsed = o.schema.safeParse(fakeJson(o.purpose, o.user));
+    const parsed = o.schema.safeParse(fakeJson(o.fake ?? o.purpose, o.user));
     if (!parsed.success) throw new AiUnavailable("fake output failed its schema");
     const usage = await recordUsage(o.userId, o.purpose, "fake", { hit: 0, miss: Math.ceil((o.system.length + o.user.length) / 4), out: 50 });
     return { data: parsed.data, model: "fake", usage };

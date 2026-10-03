@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aupply",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Applies to LinkedIn Easy Apply jobs for you, using your Aupply profile.",
   "minimum_chrome_version": "120",
   "background": { "service_worker": "background.js", "type": "module" },

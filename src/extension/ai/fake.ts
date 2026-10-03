@@ -5,6 +5,7 @@
  *   fit             skill overlap between the candidate and the job's must-haves
  *   answer          needs_user, unless the question starts with "why" or "describe"
  *   onboarding      a name from the first line, skills from the fixed list, a role from a title line
+ *   answer_match    the earlier question sharing at least half of the words (four letters or more)
  */
 
 import type { Purpose } from "./usage.js";
@@ -26,7 +27,7 @@ const json = (text: string, tag: string) => {
 };
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9+#]+/g, " ").trim();
 
-export function fakeJson(purpose: Purpose, user: string): unknown {
+export function fakeJson(purpose: Purpose | "answer_match", user: string): unknown {
   switch (purpose) {
     case "jd_facts": {
       const posting = block(user, "posting");
@@ -72,6 +73,21 @@ export function fakeJson(purpose: Purpose, user: string): unknown {
         kind: "long_form", answer: `The role fits the work I do every day with ${skills}, and I would like to build on it here.`,
         option_index: null, needs_user: false, reusable: true, confidence: 0.9, reason: "fake: long form",
       };
+    }
+    case "answer_match": {
+      // Words in common (four letters or more) over all the words: 0.5 or more is "the same".
+      const answered: { n: number; q: string }[] = json(user, "answered") ?? [];
+      const q = json(user, "question") ?? {};
+      const words = (s: string) => new Set(norm(s).split(" ").filter((w) => w.length >= 4));
+      const want = words(String(q.label ?? ""));
+      let best: { n: number; j: number } | null = null;
+      for (const a of answered) {
+        const have = words(a.q);
+        const both = [...want].filter((w) => have.has(w)).length;
+        const j = both / Math.max(1, new Set([...want, ...have]).size);
+        if (!best || j > best.j) best = { n: a.n, j };
+      }
+      return best && best.j >= 0.5 ? { index: best.n, confidence: 0.9 } : { index: null, confidence: 0 };
     }
     case "onboarding": {
       const text = block(user, "resume");

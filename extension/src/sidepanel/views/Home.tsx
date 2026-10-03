@@ -191,6 +191,12 @@ function RunCard({ state }: { state: UiState }) {
         </div>
       )}
       {run.message && <div className={`note ${done ? "" : "bad"}`}>{run.message}</div>}
+      {done && state.me && (
+        <p className="muted small">
+          Now: {state.me.open_questions} question{state.me.open_questions === 1 ? "" : "s"} open, {state.me.linkedin.queue.waiting_on_you} job
+          {state.me.linkedin.queue.waiting_on_you === 1 ? "" : "s"} waiting on you, {state.me.linkedin.queue.ready} ready in the queue.
+        </p>
+      )}
       <div className="grid2 small">
         <span>Sent: {c.sent + c.unconfirmed}</span>
         <span>Waiting on you: {c.waiting}</span>

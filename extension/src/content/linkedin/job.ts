@@ -12,7 +12,7 @@ import {
   $$, alreadyApplied, applyControl, checkpoint, clickText, closed, deepAll, dismiss, limitHit, loggedOut, modal, navBtn, pageTitle,
   progress, rateLimited, sentTo, setVal, txt, vis,
 } from "./dom";
-import { applyActions, collectFields, errorTexts, repair } from "./form";
+import { applyActions, collectFields, errorTexts, refusedNumbers, repair } from "./form";
 
 export interface Bridge {
   answers(page: { progress: string; index: number }, company: string, fields: Field[]): Promise<AnswersResponse>;
@@ -175,12 +175,22 @@ async function cont(args: JobArgs, bridge: Bridge): Promise<R> {
     await sleep(2800);
     if (/^submit/i.test(nxt)) break;
     if (prev && progress() === prev && navBtn()) {
-      // The same page again: blocked, not slow. One repair pass, then report the stall.
-      if (!repaired && repair()) {
+      // The same page again: blocked, not slow. One repair pass, then report the stall: first a
+      // decimal or a lone number; then the fields still refused as numbers go back to the server
+      // for its number (li_fill's repair asks the rules the same way).
+      if (!repaired) {
         repaired = true;
-        clickText(nxt);
-        await sleep(2800);
-        if (progress() !== prev) continue;
+        let fixed = repair();
+        const refused = refusedNumbers();
+        if (refused.fields.length) {
+          const ans = await bridge.answers({ progress: prev, index: i }, company, refused.fields);
+          fixed = applyActions(refused, ans.actions.filter((a) => a.do === "set")).changed || fixed;
+        }
+        if (fixed) {
+          clickText(nxt);
+          await sleep(2800);
+          if (progress() !== prev) continue;
+        }
       }
       if (ta) return { r: "NEEDS_CLICK", need: [ta.label], trace };
       return { r: "STALL", errs: errorTexts(), trace };

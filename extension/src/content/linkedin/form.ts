@@ -22,6 +22,12 @@ const isRequired = (el: Element, label: string) =>
   (el as HTMLInputElement).required || el.getAttribute("aria-required") === "true" || /\*\s*$/.test(label);
 const clean = (label: string) => label.replace(/\s*\*\s*$/, "").trim();
 
+/** A number field, however it is drawn: type=number, a numeric inputmode, or LinkedIn's own
+    marker (its numeric questions are text inputs whose id ends in "numeric"). BUGS.md B4: a CTC
+    field read as text got "6 LPA (600000 INR per year)" and LinkedIn said "Invalid input". */
+export const isNumeric = (el: Element) =>
+  (el as HTMLInputElement).type === "number" || /^(numeric|decimal)$/i.test(el.getAttribute("inputmode") || "") || /numeric/i.test(`${el.id} ${(el as HTMLInputElement).name || ""}`);
+
 /** li_dom `fields`: visible controls in the modal, not hidden, not the "select language" control. */
 function controls(m: HTMLElement): Control[] {
   return $$<Control>("input,select,textarea", m).filter((e) => (e as HTMLInputElement).type !== "hidden" && vis(e) && !/select language/i.test(lab(e)));
@@ -77,7 +83,7 @@ export function collectFields(): Collected {
     if ((el.value || "").trim()) continue; // already filled
     const L = lab(el);
     const typeahead = el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list";
-    const kind = el.tagName === "TEXTAREA" ? "textarea" : typeahead ? "typeahead" : type === "number" ? "number" : "text";
+    const kind = el.tagName === "TEXTAREA" ? "textarea" : typeahead ? "typeahead" : isNumeric(el) ? "number" : "text";
     const max = Number(el.getAttribute("maxlength")) || undefined;
     add({ kind, label: clean(L), required: isRequired(el, L), ...(max && max > 0 ? { max_length: max } : {}) }, [el]);
   }
@@ -201,6 +207,32 @@ export function repair(): boolean {
     n++;
   }
   return n > 0;
+}
+
+const INVALID_NUMBER = /invalid input|must be a (number|whole number|decimal)|enter a (valid|whole) number|larger than|smaller than|between \d/i;
+
+/** Inputs LinkedIn refused as numbers that still hold something other than a whole number, as
+    number fields for the server to answer again (its number rules: the rule's number for a saved
+    phrase, never the digits of a phrase glued together). */
+export function refusedNumbers(): Collected {
+  const m = modal();
+  const fields: Field[] = [];
+  const els = new Map<string, Control[]>();
+  if (!m) return { fields, els };
+  let n = 0;
+  for (const el of controls(m)) {
+    if (el.tagName !== "INPUT") continue;
+    let p: HTMLElement | null = el as HTMLElement, refused = false;
+    for (let k = 0; k < 4 && p && !refused; k++) {
+      p = p.parentElement;
+      refused = Boolean(p && INVALID_NUMBER.test(p.innerText || p.textContent || ""));
+    }
+    if (!refused || /^\d+$/.test((el.value || "").trim())) continue;
+    const fid = `n${n++}`;
+    fields.push({ fid, kind: "number", label: clean(lab(el)), required: true });
+    els.set(fid, [el]);
+  }
+  return { fields, els };
 }
 
 /** The leaf error texts in the modal (required, invalid, must, enter a): up to 3, for a STALL. */

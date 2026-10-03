@@ -329,7 +329,7 @@ async function perform(run: RunState) {
         run.message =
           r.reason === "cap" ? "Today's LinkedIn Easy Apply limit is reached."
           : r.reason === "blocked" ? `LinkedIn is paused until ${r.until ? clock(r.until) : "later"}.`
-          : r.waiting_on_you ? `Nothing left to apply to. ${r.waiting_on_you} job${r.waiting_on_you > 1 ? "s wait" : " waits"} for your answers.`
+          : r.waiting_on_you ? `Nothing left to apply to. ${r.waiting_on_you} job${r.waiting_on_you > 1 ? "s were" : " was"} waiting for your answers when the run ended.`
           : "Nothing left to apply to.";
         run.todo = { do: "end", reason: r.reason === "cap" ? "cap" : r.reason === "blocked" ? "blocked" : "done" };
       } else {
@@ -434,7 +434,11 @@ function recordResult(run: RunState, lease: JobOrder, sent: ApplyResult, res: Ap
   else if (res.status && ["skipped", "saved", "closed"].includes(res.status)) c.skipped++;
   if (r === "RATE_LIMITED") run.slow = true;
   run.notLoadedStreak = r === "NOT_LOADED" ? run.notLoadedStreak + 1 : 0;
-  const words = res.status === "saved" ? "Saved for you to apply on the company site" : OUTCOME[r] ?? r;
+  const base = OUTCOME[r] ?? r;
+  const words =
+    res.status === "saved" ? "Saved for you to apply on the company site"
+    : res.status === "failed" ? `Failed after a retry: ${base.replace(/ \(will retry\)$/, "").replace(/^./, (c) => c.toLowerCase())}`
+    : base;
   run.recent.unshift({ id: lease.job.id, title: lease.job.title, company: lease.job.company, result: words, at: new Date().toISOString() });
   run.recent = run.recent.slice(0, LIMITS.recentResults);
   log("job", lease.lease_id.slice(0, 8), r, res.status ?? "-", res.next.type);

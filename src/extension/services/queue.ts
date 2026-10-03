@@ -26,9 +26,19 @@ export const retryLater = (m: Meta, now = Date.now()) => typeof m.retry_after ==
 export async function linkedinQueue(userId: string, within: PostedWithin, limit = 500) {
   const rows = await queuedJobs(userId, "linkedin", limit, within);
   const now = Date.now();
+  // A job waits only on questions the user can still see: one whose questions were all answered or
+  // dismissed meanwhile (a release that did not land) is ready again (BUGS.md B4).
+  const asked = [...new Set(rows.flatMap((r) => (waitingOnUser(metaOf(r)) ? (metaOf(r).needs_input as string[]) : [])))];
+  const open = new Set<string>();
+  if (asked.length) {
+    const { data, error } = await getSupabaseClient().from("ext_questions").select("id").eq("user_id", userId).eq("status", "open").in("id", asked);
+    if (error) throw error;
+    (data ?? []).forEach((q) => open.add(q.id));
+  }
+  const waits = (r: { metadata: unknown }) => waitingOnUser(metaOf(r)) && (metaOf(r).needs_input as string[]).some((id) => open.has(id));
   return {
-    ready: rows.filter((r) => !waitingOnUser(metaOf(r)) && !retryLater(metaOf(r), now)),
-    waiting: rows.filter((r) => waitingOnUser(metaOf(r))),
+    ready: rows.filter((r) => !waits(r) && !retryLater(metaOf(r), now)),
+    waiting: rows.filter(waits),
   };
 }
 

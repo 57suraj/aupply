@@ -15,6 +15,7 @@ import { check, unwrap, unwrapMaybe } from "../../lib/errors.js";
 import { saveAnswerFromClaude, updateAnswer } from "../../services/answers.js";
 import { QUEUE_MAX_AGE_HOURS } from "../../services/automation.js";
 import type { DecisionItem, Field, QuestionItem, ReviewItem } from "../contract.js";
+import { isSelfKeyed } from "../engine/modules.js";
 import { notFoundExt } from "../server/http.js";
 import { extAt } from "./queue.js";
 
@@ -72,16 +73,59 @@ export async function decide(userId: string, items: { id: string; keep: boolean 
 const realOptions = (f: Field) =>
   (f.options ?? []).filter((o, i) => !f.option_values_empty?.[i] && o.trim() && !/^(select|choose|--|please)/i.test(o.trim()));
 
-/** Record a question a job is waiting on (one row per wording; a repeat bumps it and adds the job). */
+/** Words that carry meaning (four letters or more), for grouping rephrased questions. */
+const words = (norm: string) => new Set(norm.split(" ").filter((w) => w.length >= 4));
+/** Two wordings of one question: most of their meaningful words in common (BUGS.md B3). */
+const ALIAS_MIN = 0.6;
+function similar(a: string, b: string) {
+  const x = words(a), y = words(b);
+  const both = [...x].filter((w) => y.has(w)).length;
+  return both / Math.max(1, new Set([...x, ...y]).size);
+}
+const sameShape = (opts: unknown, options: string[]) =>
+  JSON.stringify(((Array.isArray(opts) ? opts : []) as string[]).map((o) => o.toLowerCase()).sort()) === JSON.stringify(options.map((o) => o.toLowerCase()).sort());
+
+/** An open question asking the same thing in other words (same kind of field, same options). */
+async function aliasOf(userId: string, q: { norm: string; key: string | null; field: Field }, options: string[]) {
+  if (q.key) return null; // a keyed fact is one question already, whatever the wording
+  const open = unwrap(
+    await db()
+      .from("ext_questions")
+      .select("id, question_norm, field_type, options, metadata")
+      .eq("user_id", userId)
+      .eq("status", "open")
+      .is("key", null)
+      .order("last_seen_at", { ascending: false })
+      .limit(100)
+  );
+  const textual = (t: string | null) => !["radio", "select", "checkbox_group"].includes(t ?? "");
+  return (
+    open.find((o) => textual(o.field_type) === textual(q.field.kind) && (textual(q.field.kind) || sameShape(o.options, options)) && similar(o.question_norm, q.norm) >= ALIAS_MIN) ??
+    null
+  );
+}
+
+/** Record a question a job is waiting on: one row per wording (a repeat bumps it and adds the job);
+    a rephrasing of an open question joins it as an alias, so the user answers once (BUGS.md B3). */
 export async function noteQuestion(
   userId: string,
   q: { question: string; norm: string; key: string | null; kind: "needs_input" | "protected"; field: Field; applicationId: string | null }
 ): Promise<string> {
   const options = realOptions(q.field);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const cur = unwrapMaybe(
-      await db().from("ext_questions").select("id, status, waiting, times_seen, key").eq("user_id", userId).eq("question_norm", q.norm).maybeSingle()
+    let cur = unwrapMaybe(
+      await db().from("ext_questions").select("id, status, waiting, times_seen, key, metadata").eq("user_id", userId).eq("question_norm", q.norm).maybeSingle()
     );
+    if (!cur && q.kind === "needs_input") {
+      const alias = await aliasOf(userId, q, options);
+      if (alias) {
+        const meta = (alias.metadata as Meta | null) ?? {};
+        const aliases = (meta.aliases ?? []) as { question: string; norm: string }[];
+        if (!aliases.some((a) => a.norm === q.norm)) aliases.push({ question: q.question.slice(0, 2000), norm: q.norm.slice(0, 2000) });
+        check(await db().from("ext_questions").update({ metadata: { ...meta, aliases: aliases.slice(-20) } as Json }).eq("id", alias.id).eq("user_id", userId));
+        cur = unwrapMaybe(await db().from("ext_questions").select("id, status, waiting, times_seen, key, metadata").eq("id", alias.id).eq("user_id", userId).maybeSingle());
+      }
+    }
     if (cur) {
       const waiting = ((cur.waiting as string[] | null) ?? []).filter(Boolean);
       if (q.applicationId && !waiting.includes(q.applicationId)) waiting.push(q.applicationId);
@@ -90,9 +134,11 @@ export async function noteQuestion(
           .from("ext_questions")
           .update({
             times_seen: cur.times_seen + 1, last_seen_at: new Date().toISOString(), waiting: waiting.slice(-200) as Json,
-            // Seen again although answered: the answer did not settle it, so it is open again.
+            // Seen again although answered: the answer did not fit this form (formAnswers uses the
+            // user's answer first), so it is open again.
             status: cur.status === "answered" ? "open" : cur.status,
-            kind: q.kind, field_type: q.field.kind, options: (options.length ? options : null) as Json, key: cur.key ?? q.key,
+            kind: q.kind, field_type: q.field.kind, options: (options.length ? options : null) as Json,
+            key: cur.key && isSelfKeyed(cur.key) ? cur.key : q.key,
           })
           .eq("id", cur.id)
           .eq("user_id", userId)
@@ -133,16 +179,29 @@ export async function listQuestions(userId: string): Promise<{ items: QuestionIt
 }
 
 async function questionOf(userId: string, id: string) {
-  const q = unwrapMaybe(await db().from("ext_questions").select("id, question, key, kind, status, waiting").eq("id", id).eq("user_id", userId).maybeSingle());
+  const q = unwrapMaybe(await db().from("ext_questions").select("id, question, key, kind, status, waiting, metadata").eq("id", id).eq("user_id", userId).maybeSingle());
   if (!q) throw notFoundExt("Question");
   return q;
 }
 
-/** The user's answer: saved as their own, and every job waiting on it back in the queue. */
+/** Save the user's answer as their own (confirmed, source 'user'). */
+async function saveUsers(userId: string, question: string, answer: string, key: string | null) {
+  const saved = await saveAnswerFromClaude(userId, { question, answer, key, confirmed_by_user: true });
+  check(await db().from("answers").update({ source: "user" }).eq("id", saved.answer.id).eq("user_id", userId));
+  return saved.answer.id as string;
+}
+
+/** The user's answer: saved as their own under every wording of the question, and every job waiting
+    on it back in the queue. A key is used only when the resolver reads the answer back from it
+    (BUGS.md B2); otherwise each wording gets its own keyless answer, so two questions can never
+    share, or overwrite, one answer row. */
 export async function answerQuestion(userId: string, id: string, answer: string) {
   const q = await questionOf(userId, id);
-  const saved = await saveAnswerFromClaude(userId, { question: q.question, answer, key: q.key, confirmed_by_user: true });
-  check(await db().from("answers").update({ source: "user" }).eq("id", saved.answer.id).eq("user_id", userId));
+  const key = q.key && isSelfKeyed(q.key) ? q.key : null;
+  const answerId = await saveUsers(userId, q.question, answer, key);
+  const aliases = ((((q.metadata as Meta | null) ?? {}).aliases ?? []) as { question: string }[]).filter((a) => a.question);
+  for (const a of aliases) await saveUsers(userId, a.question, answer, null);
+  const saved = { answer: { id: answerId } };
   check(
     await db()
       .from("ext_questions")

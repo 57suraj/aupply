@@ -313,6 +313,7 @@ async function main() {
   await sessionsSection(userToken, dev);
   await draftSection(dev);
   await applySection(dev);
+  await liveFixesSection(dev);
   await killSwitchSection(dev);
   section("Privacy");
   expect("no response body ever carried the user id", !seenBodies.some((b) => b.includes(userId)), null);
@@ -595,6 +596,135 @@ async function draftSection(dev) {
   expect("session/end counts the run's jobs", r.status === 200 && r.body.counts.discovered === 3 && r.body.counts.skipped >= 7, r.body);
   await clearBlocks();
   expect("no response body ever carried the user id (first_seen_by never leaves the server)", !seenBodies.some((b) => b.includes(userId)), null);
+}
+
+// ---------------------------------------------------------------------------
+// Fixes from the first live test (docs/extension/BUGS.md B1 to B3)
+// ---------------------------------------------------------------------------
+async function liveFixesSection(dev) {
+  section("Live-test fixes (BUGS.md B1 to B3)");
+  // Room under today's cap again, no backoffs.
+  await admin.from("applications").delete().eq("user_id", userId).eq("company_name", "Cap Filler");
+  await clearBlocks();
+  const B = 700_000_000_000 + Math.floor(Math.random() * 1e8) * 100;
+  const ids = { P1: String(B + 1), P2: String(B + 2), P3: String(B + 3) };
+  testJobIds.push(...Object.values(ids));
+  await admin.from("applications").insert(
+    Object.entries(ids).map(([k, ext], i) => ({
+      user_id: userId, platform: "linkedin", external_id: ext, job_url: `https://www.linkedin.com/jobs/view/${ext}/`, company_name: `Fixco ${k}`,
+      job_title: "Backend Engineer", status: "discovered", match_score: 99 - i, source: "sweep", experience_min_years: 1,
+      metadata: { w: "1h", agg: 0, lvl: null, pay: null, sm: [], yu: 0, needs_decision: false, channel: "extension", ...extAt() },
+    }))
+  );
+  let r = await http("POST", "/session/start", { token: dev.access, json: { mode: "apply", posted_within: "1h" } });
+  const runId = r.body?.run_id;
+  expect("a run for the fixes", r.body?.type === "started", r.body);
+  await http("POST", "/linkedin/tracker", { token: dev.access, json: { lease_id: r.body.first.lease_id, count: 13 } });
+  const next = () => http("POST", "/linkedin/apply/next", { token: dev.access, json: { run_id: runId } });
+  const answers = (lease, fields, company) => http("POST", "/linkedin/apply/answers", { token: dev.access, json: { lease_id: lease, page: { progress: "50%", index: 0 }, company, fields } });
+  const result = (lease, res) => http("POST", "/linkedin/apply/result", { token: dev.access, json: { lease_id: lease, result: res } });
+  const yn = (fid, label) => ({ fid, kind: "radio", label, options: ["Yes", "No"], required: true });
+  const PY = "Have you personally built Python scripts or backend services that process files, automate workflows, or integrate APIs, beyond coursework or guided tutorials?";
+  const AWS = "Have you personally configured or troubleshot AWS S3 uploads, cloud storage permissions, or applications running on Linux servers?";
+  const JAVA = "Have you personally built production services in Java?";
+  const PROJ = "Is your current project in production?";
+  // Wordings the resolver does not answer (its catch-all answers "...okay with a 2 year bond?" as a
+  // technology question: BUGS.md B5).
+  const BOND = "Are you okay to sign a 2 year service bond?";
+  const BOND2 = "Are you ready to sign a 2 year service bond?";
+  const LATEST = "Is your latest project open source?";
+
+  r = await next();
+  const L1 = r.body;
+  r = await answers(L1.lease_id, [yn("a", PY), yn("b", AWS), yn("c", JAVA), yn("d", PROJ), yn("e", BOND)], "Fixco P1");
+  const act = Object.fromEntries((r.body?.actions ?? []).map((a) => [a.fid, a]));
+  expect("B1: the two skill questions from the live test are answered Yes by the rule, never asked", act.a?.do === "choose" && act.a.index === 0 && act.b?.do === "choose" && act.b.index === 0, r.body);
+  expect("B1: a far technology (Java for this user) stays No", act.c?.do === "choose" && act.c.index === 1, act.c);
+  expect("B1: a personal question (a service bond) and an unknown one still go to the user", r.body?.verdict === "needs_input" && r.body.questions?.length === 2, r.body);
+  const { data: lease1 } = await admin.from("ext_leases").select("detail").eq("id", L1.lease_id).single();
+  const qa1 = lease1?.detail?.pages?.["0"]?.qa ?? [];
+  expect("B1: logged as rule:qualify", qa1.filter((x) => x.source === "rule:qualify").length === 2, qa1);
+  const projQ = r.body?.questions?.find((q) => q.question === PROJ);
+  const bondQ = r.body?.questions?.find((q) => q.question === BOND);
+  const { data: projRow } = await admin.from("ext_questions").select("key").eq("id", projQ?.id).single();
+  expect("B2: a question the resolver files under a key it never reads back (projects_text) is kept keyless", projRow && projRow.key === null, projRow);
+  await result(L1.lease_id, { r: "NEEDS_INPUT", question_ids: r.body.questions.map((q) => q.id) });
+
+  r = await next();
+  const L2 = r.body;
+  r = await answers(L2.lease_id, [yn("f", LATEST), yn("g", BOND2)], "Fixco P2");
+  const latestQ = r.body?.questions?.find((q) => q.question === LATEST);
+  const bond2Q = r.body?.questions?.find((q) => q.question === BOND2);
+  expect("B3: a rephrased open question joins it (one question for the user)", L2?.job?.id === ids.P2 && bond2Q?.id === bondQ?.id && latestQ && latestQ.id !== projQ?.id, r.body);
+  await result(L2.lease_id, { r: "NEEDS_INPUT", question_ids: r.body.questions.map((q) => q.id) });
+  r = await http("GET", "/questions", { token: dev.access });
+  expect("B3: the grouped question waits for both jobs", r.body?.items?.find((i) => i.id === bondQ?.id)?.waiting_count === 2, r.body);
+
+  for (const [q, a] of [[projQ, "Yes"], [latestQ, "No"], [bondQ, "Yes"]]) await http("POST", `/questions/${q.id}/answer`, { token: dev.access, json: { answer: a } });
+  const { data: rows } = await admin.from("answers").select("id, key, question, answer").eq("user_id", userId).in("question", [PROJ, LATEST, BOND, BOND2]);
+  const ans = (q) => rows?.find((x) => x.question === q);
+  expect(
+    "B2: two questions under one resolver key keep two separate, keyless answers",
+    ans(PROJ)?.answer === "Yes" && ans(LATEST)?.answer === "No" && ans(PROJ).id !== ans(LATEST).id && ans(PROJ).key === null && ans(LATEST).key === null,
+    rows
+  );
+  expect("B3: the answer is saved under every wording", ans(BOND)?.answer === "Yes" && ans(BOND2)?.answer === "Yes", rows);
+
+  r = await next();
+  const L1b = r.body;
+  r = await answers(L1b.lease_id, [yn("a", PY), yn("b", AWS), yn("c", JAVA), yn("d", PROJ), yn("e", BOND)], "Fixco P1");
+  expect("B2: once answered, the job's questions are not asked again (the loop of the live test)", L1b?.job?.id === ids.P1 && r.body?.verdict === "fill" && !r.body.questions, r.body);
+  await result(L1b.lease_id, { r: "SENT" });
+  r = await next();
+  const L2b = r.body;
+  r = await answers(L2b.lease_id, [yn("f", LATEST), yn("g", BOND2)], "Fixco P2");
+  const act2 = Object.fromEntries((r.body?.actions ?? []).map((a) => [a.fid, a]));
+  expect("B3: the rephrased question is answered with the user's answer", L2b?.job?.id === ids.P2 && r.body?.verdict === "fill" && act2.f?.index === 1 && act2.g?.index === 0, r.body);
+  await result(L2b.lease_id, { r: "SENT" });
+  r = await next();
+  const L3 = r.body;
+  r = await answers(L3.lease_id, [yn("h", "Can you sign a 2 year service bond?")], "Fixco P3");
+  expect("B3: a new rephrasing of an answered question is answered, not asked", L3?.job?.id === ids.P3 && r.body?.verdict === "fill" && r.body.actions[0]?.index === 0, r.body);
+  await result(L3.lease_id, { r: "SENT" });
+
+  // B4: LinkedIn's number fields get numbers, even from a saved prose answer; a second ask for the
+  // same page (the numbers LinkedIn refused) adds to that page's Q&A.
+  await admin.from("answers").insert({ user_id: userId, question: "Current CTC", answer: "8 LPA (800000 INR per year)", status: "confirmed", source: "user" });
+  const P4 = String(B + 4);
+  testJobIds.push(P4);
+  const { data: p4 } = await admin
+    .from("applications")
+    .insert({
+      user_id: userId, platform: "linkedin", external_id: P4, job_url: `https://www.linkedin.com/jobs/view/${P4}/`, company_name: "Fixco P4",
+      job_title: "Backend Engineer", status: "discovered", match_score: 99, source: "sweep",
+      metadata: { w: "1h", agg: 0, sm: [], needs_decision: false, channel: "extension", ...extAt() },
+    })
+    .select("id")
+    .single();
+  r = await next();
+  const L4 = r.body;
+  r = await answers(L4.lease_id, [{ fid: "p", kind: "text", label: "Mobile phone number", required: true }], "Fixco P4");
+  r = await answers(L4.lease_id, [{ fid: "n", kind: "number", label: "Current ctc:", required: true }], "Fixco P4");
+  expect("B4: a number field with a saved prose answer gets the rule's number", L4?.job?.id === P4 && r.body?.actions?.[0]?.value === "800000", r.body);
+  const { data: lease4 } = await admin.from("ext_leases").select("detail").eq("id", L4.lease_id).single();
+  expect("B4: the second ask for the page adds to its Q&A", (lease4?.detail?.pages?.["0"]?.qa ?? []).map((x) => x.question).join("|") === "Mobile phone number|Current ctc:", lease4?.detail?.pages);
+  await result(L4.lease_id, { r: "SENT" });
+
+  // B4: a job waiting on a question that is no longer open (a release that did not land) is ready.
+  const P5 = String(B + 5);
+  testJobIds.push(P5);
+  await admin.from("applications").insert({
+    user_id: userId, platform: "linkedin", external_id: P5, job_url: `https://www.linkedin.com/jobs/view/${P5}/`, company_name: "Fixco P5",
+    job_title: "Backend Engineer", status: "discovered", match_score: 99, source: "sweep",
+    metadata: { w: "1h", agg: 0, sm: [], needs_decision: false, channel: "extension", needs_input: [projQ.id], ...extAt() },
+  });
+  r = await http("GET", "/me", { token: dev.access });
+  expect("B4: a job waiting only on answered questions is not counted as waiting", r.body?.linkedin?.queue?.waiting_on_you === 0, r.body?.linkedin?.queue);
+  r = await next();
+  expect("B4: ...and is applied to", r.body?.job?.id === P5, r.body);
+  if (r.body?.lease_id) await result(r.body.lease_id, { r: "SENT" });
+  void p4;
+  await http("POST", "/session/end", { token: dev.access, json: { run_id: runId, reason: "done" } });
 }
 
 // ---------------------------------------------------------------------------

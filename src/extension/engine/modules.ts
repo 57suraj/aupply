@@ -73,6 +73,30 @@ export function payMax(text: string): number | null {
   return bare.payMax(text);
 }
 
+let selfKeyed: Set<string> | null = null;
+
+/**
+ * The answer keys the resolver reads back from the user's saved answers under the same key
+ * (`val("k", saved("k", ...))`, or `const v = saved("k", ...); return val("k", ...)`), plus the
+ * protected facts (read through KEYED). Only these may label a question for the user: an answer
+ * saved under any other key is never read back for it (BUGS.md B2: "projects_text" is read from
+ * "long.projects", so a Yes saved under it re-opened the question forever, and two different
+ * questions sharing that key overwrote each other's answer). Derived from the built rules, so a
+ * rule added on the MCP side is picked up without a list to keep in step.
+ */
+export function selfKeyedKeys(): Set<string> {
+  if (selfKeyed) return selfKeyed;
+  const code = (["res_rules_a", "res_rules_b"] as const).map((n) => MODULES[n].code).join("\n");
+  const keys = new Set<string>(["dob", "government_id", "references", "address", "family"]);
+  for (const m of code.matchAll(/val\((["'])([a-z0-9_.]+)\1,\s*saved\(\1\2\1/g)) keys.add(m[2]);
+  for (const m of code.matchAll(/saved\((["'])([a-z0-9_.]+)\1[^;]*\);\s*return val\(\1\2\1/g)) keys.add(m[2]);
+  selfKeyed = keys;
+  return keys;
+}
+
+/** A key a user's answer may be saved under so the resolver finds it next time (domain.* too). */
+export const isSelfKeyed = (k: string | null | undefined) => Boolean(k) && (selfKeyedKeys().has(k!) || /^domain\.[a-z]+$/.test(k!));
+
 /** Startup self-check (logged once, covered in e2e): the loaded definitions behave. */
 export function selfCheck(): string[] {
   const fails: string[] = [];
@@ -83,6 +107,8 @@ export function selfCheck(): string[] {
     if (!d.NEVERTICK.test("Follow Acme")) fails.push("NEVERTICK");
     if (!d.CONSENT.test("I agree to the privacy policy")) fails.push("CONSENT");
     if (d.clean("<p>Hello&nbsp;<b>world</b></p>") !== "Hello world") fails.push("clean");
+    const k = selfKeyedKeys();
+    if (!["drivers_license", "notice.serving", "cover_note", "sponsorship.home", "dob"].every((x) => k.has(x)) || k.has("projects_text")) fails.push("selfKeyedKeys");
   } catch (err) {
     fails.push(`load: ${err instanceof Error ? err.message : String(err)}`);
   }
