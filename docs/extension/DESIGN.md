@@ -18,10 +18,10 @@ still describes the MCP channel and stays true for it.
 | 3. AI module | done; smoke test run 4 Oct (findings below) |
 | 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
 | 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
-| 6. The extension | built; tests green; waits on one manual "Load unpacked" |
-| 7. Website pages | built; pairing check waits on the user |
+| 6. The extension | built (0.1.1); unit tests green; the "Load unpacked" check is the user's |
+| 7. Website pages | built; the end-to-end pairing check is the user's (section 15) |
 | 8. Hardening | done: e2e-ext 181 checks |
-| 9. Documentation | not started |
+| 9. Documentation | done: this file, and the "Chrome extension channel" section of `CLAUDE.md` |
 
 ## Database
 
@@ -123,8 +123,8 @@ Smoke test, 4 Oct 2026 (`deepseek-flash` for both tiers, through the OpenAI SDK 
 - "Claude is active" (`claudeActivity`): `platform_state` `engine_linkedin` or
   `engine_linkedin_draft` written in the last 30 minutes (the MCP writes them on every engine
   issue and delivery; a trigger keeps `updated_at`), or a LinkedIn application changed in the
-  last 15 minutes by something other than the extension. `retry_at` is when the newest activity
-  ages out of its window.
+  last 15 minutes by something other than the extension (the `ext_at` stamp, see Hardening).
+  `retry_at` is when the newest activity ages out of its window.
 - `POST /linkedin/tracker` (section 9.8) is built here, because every run starts with a tracker
   lease. It stores the count exactly as the MCP's `noteTracker` does and keeps the run's first
   and last reading.
@@ -232,23 +232,46 @@ card above the resume section; nothing else in `client/src` changed. The client 
 - Read-through of BUILD-INSTRUCTIONS.md against the code: every rule in sections 2, 6 to 12 is
   implemented as written or listed under deviations here.
 
+## Running it
+
+- Local: `npm run dev` starts the MCP server (3000), the extension API (`dev:ext`, 3001) and Vite
+  (5173, proxying `/ext`). A dev build of the extension against it:
+  `AUPPLY_EXT_BASE_URL=http://localhost:5173 npm run build:extension` (adds the dev origin to
+  `host_permissions`), then load `extension/dist` unpacked.
+- Tests: `npm run e2e:ext` against the e2e server (Phase 2's command), `npm run test:extension`
+  (jsdom), `npm run ai:smoke` (one real call per tier; needs `DEEPSEEK_API_KEY`), and the MCP's
+  own `npm run e2e`, which must stay green.
+- A release: change `extension/manifest.json`'s `version`, push (Vercel builds the zip). Raise
+  `EXT_MIN_VERSION` in Vercel only to force everyone onto it; the side panel offers newer versions
+  on its own.
+- Reading a live test: `ext_events` for the user (server events and the extension's `client.*`
+  events), `ext_leases` (every order and job with its result and per-page Q&A in `detail`),
+  `ext_drafts.stats`, and the debug log the user can copy from Settings.
+
 ## Deviations from the plan
 
+Server:
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
   queue shared by `/me`, `apply/next` and the queue view), `services/cleanup.ts` (cron and lazy
-  cleanup).
+  cleanup), `services/scoring.ts` (scoring a kept job).
 - `/me`'s `live_run` also says `this_device`, so the side panel can tell its own run from
-  another device's.
+  another device's. `/health` also reports the engine self-check.
 - An approved pairing can still be collected for 10 minutes after its code expires (the user
   may approve in the last seconds). A poll with an unknown pairing id or a wrong secret is 404.
 - The website endpoints use the imported `requireUser`, whose 401 body is the MCP's
   `{ error: "..." }` string, not the contract's object. The website's helper handles both.
-- Ending a stale run (cleanup) also closes its open leases as `ABORTED`.
+- Ending a stale run (cleanup) also closes its open leases as `ABORTED`. Starting a run ends this
+  device's older open runs and other devices' runs that stopped beating.
 - `/onboarding/propose` answers with `ai_used`; without AI it still answers (regex fields only)
   instead of a 503, so the side panel's form is always filled as far as it can be.
-- New env `AI_SMART_JSON_MODE` (see the AI section). `/health` also reports the engine
-  self-check.
+- New env `AI_SMART_JSON_MODE` (unused: JSON mode works with thinking on).
+- The "Claude is active" application check uses the `ext_at` stamp (see Hardening) instead of
+  the plan's literal rule ("engine not starting with ext@"), which would have treated every row a
+  draft writes (no `engine`) as Claude's; manual applies (`applied_by` 'user') do not count.
+- The e2e server also runs with `EXT_MIN_VERSION=0.1.0` and a known `CRON_SECRET`, so the gate and
+  the cron are tested.
 
+Draft:
 - Search orders hold the next page of each active search (up to 5), not consecutive pages of
   one search, so the "fewer than 10 cards ends that search's paging" rule applies between
   orders and no page is fetched after a short one. "First window wins" is kept as "the freshest
@@ -262,22 +285,20 @@ card above the resume section; nothing else in `client/src` changed. The client 
 - `draft/next` takes `lease_id` and `result` as optional (a call after a wait has neither); a
   repeated result for a completed lease is answered with the next order, never processed twice.
   `ext_drafts` saves are optimistic on `updated_at`, so two calls at once cannot clobber the
-  state (the second gets 409 and asks again).
+  state (the second gets 409 and asks again). A retried scoring batch still counts the jobs this
+  same draft already queued.
 - `DraftOrder` and `draft/start` also answer `{ type: "disabled" }` (kill switch).
-- The "Claude is active" application check uses the `ext_at` stamp (see Hardening) instead of
-  the plan's literal rule ("engine not starting with ext@"), which would have treated every row a
-  draft writes (no `engine`) as Claude's; manual applies (`applied_by` 'user') do not count.
 - A draft also ends (stop `target`) when the target is reached, and (stop `blocked`) when a
   backoff would last more than 2 hours.
-- Extra file: `services/scoring.ts`.
 
+Apply:
 - A second `apply/next` from the same device while its apply lease is open returns that same
   lease (so a restarted service worker resumes) instead of `wait lease_busy`. Other work while a
   lease is open (a draft, another device) still gets `lease_busy`; e2e checks that only one lease
   is ever open.
 - `apply/next` settles expired leases before it picks a job (the first build settled them inside
   `issueLease`, after the pick, so the expired job was handed straight back; e2e caught it).
-- One more tracker read before `done` (see the apply section).
+- One more tracker read before `done` when jobs were sent since the last one.
 - AI is not asked on a page that has a protected fact (the job is skipped anyway), nor for
   typeaheads, lone checkboxes or date selects. A page's AI questions run in parallel with a 40
   second deadline. The saved answers the AI sees leave out protected keys, money (`comp.*`) and
@@ -287,6 +308,7 @@ card above the resume section; nothing else in `client/src` changed. The client 
   dismissed is skipped; one whose questions were all answered meanwhile is retried later.
 - A question answered once but asked again (the saved answer did not settle it) is reopened.
 
+Extension and website:
 - The zip is written to `public/downloads/aupply-chrome.zip`, not `client/public/downloads/`:
   Vite's root here is the repo root, so it serves `public/`, and `vite.config.ts` may only gain
   the one proxy line. `.gitignore` has `public/downloads/`.
@@ -298,7 +320,7 @@ card above the resume section; nothing else in `client/src` changed. The client 
 - `deepText` (the success message and the daily-limit dialog) reads the page's own text and every
   shadow root. The MCP engine's `li_dom` starts its walk at `document`, whose `textContent` is
   always null, so it reads shadow roots only (the plan's parity row says "search shadow DOM
-  too"). Worth checking in the MCP engine (it is frozen for this build; see open issues).
+  too"). See open issues.
 - Trusted clicks are requested by `cs/clickRequest` and answered in its response, not by a
   separate `trustedClickDone` message. Without the permission (or when it fails) the side panel
   asks the user for the click and the job waits up to 3 minutes.
@@ -309,14 +331,33 @@ card above the resume section; nothing else in `client/src` changed. The client 
 - `CHECKPOINT` and `LOGGED_OUT` pause the run (with the side panel's message and a Resume button)
   rather than ending it, as section 11.5 describes for pauses.
 - `jobIdOf` also reads `currentJobId=` (a job page LinkedIn may land on).
+- The content script imports no module holding Aupply's address (`shared/env.ts` is for the
+  service worker and side panel only).
 
 ## Open issues
 
+For the user (the plan's Appendix C and what the build found):
 - The MCP engine's `deepText` reads shadow roots only (above). If LinkedIn ever shows the
   success message outside a shadow root, the MCP channel reports UNCONFIRMED where the extension
-  reports SENT. Raise with the user; the MCP is frozen for this build.
-- Cross-channel exclusion on the MCP side (the plan's Appendix C item 3): the extension waits while
-  Claude works LinkedIn, but the MCP only notes an extension run in `start_session`'s
-  `another_run_live` (runs under two hours old) and refuses nothing while the extension works.
-  The shared backoffs, the shared cap and one-lease-per-user still hold. Closing it needs an MCP
-  change; not done (the MCP is frozen for this build).
+  reports SENT. Changing it needs an MCP change (frozen for this build).
+- Cross-channel exclusion on the MCP side (Appendix C 3): the extension waits while Claude works
+  LinkedIn, but the MCP only notes an extension run in `start_session`'s `another_run_live` (runs
+  under two hours old) and refuses nothing while the extension works. The shared backoffs, the
+  shared cap and one lease per user still hold. Closing it needs an MCP change (for example
+  `linkedin_apply` refusing while an extension lease is open).
+- DeepSeek V4.1-Pro (Appendix C 1): when it launches, set `AI_SMART_MODEL` to its id after
+  `npm run ai:smoke`.
+- Where AI data goes (Appendix C 2): resume text (contact details removed) and form questions go
+  to DeepSeek's API; the privacy policy should say so before a public launch.
+- Chrome Web Store (Appendix C 4): an unlisted listing needs privacy disclosures, a reason for the
+  optional `debugger` permission, and wording about LinkedIn's User Agreement.
+- Engine exposure (Appendix C 5): the extension's page code ships in the zip; the decision logic
+  (resolver, screening, prompts) stays on the server. The repo is public until launch anyway.
+- Resume upload (Appendix C 6) and a settings UI for `rules.ext.min_fit` and `draft_target`
+  (Appendix C 7): not built.
+- The `DEEPSEEK_API_KEY` was pasted into the build chat on 4 Oct; rotating it on DeepSeek after
+  the build (and updating Vercel and `.env`) is the cautious step.
+
+Untested until the user's live run (section 15): everything that touches LinkedIn's real pages
+(the job page and modal markup, the tracker count, the guest API's live answers, trusted clicks,
+a hidden worker tab over a long run) and the side panel in Chrome.

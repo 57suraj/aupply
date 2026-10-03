@@ -314,3 +314,36 @@ everywhere:
   prescreen record the technologies a JD names (today only the ones missing for that user
   are kept). Never expose who found a job or what they did with it. Keep new posting facts
   in posting columns, not in user-specific fields, so the split stays mechanical.
+
+## Chrome extension channel
+
+A second, independent channel (the user, 4 Oct 2026): a Manifest V3 Chrome extension that applies
+to LinkedIn Easy Apply jobs with no Claude chat, controlled by Aupply's server. D1 in
+`docs/automation-tools.md` still describes the MCP channel. Plan: `docs/extension/BUILD-INSTRUCTIONS.md`;
+as built, deviations and how to test: `docs/extension/DESIGN.md`.
+
+- Code: `api/ext.ts` (own Vercel function, `/ext/*` rewrite) -> `src/extension/` (`contract.ts` is
+  shared with the extension, zod only); `extension/` (built by `npm run build:extension` into
+  `/downloads/aupply-chrome.zip`); `client/src/extension/` (`/extension`, `/extension/connect`).
+- Freeze: extension work never changes MCP code or existing migrations. It imports the MCP's
+  platform logic read-only (resolver, screening, ids, `mapResult`, cap, backoffs) so both channels
+  decide alike, never `src/mcp` or the prose services; `clean`, `yearsOf`, `NEVERTICK`, `CONSENT`
+  load from `src/engines/generated.ts` through `node:vm`.
+- Data: same database; `ext_*` tables and the shared `job_postings` cache (`first_seen_by` is never
+  returned by any endpoint). Runs are `runs` rows (client `aupply_extension`); queue, cap and
+  backoffs are shared with the MCP. Every extension write to `applications` stamps
+  `metadata.ext_at`; a LinkedIn row changed in the last 15 minutes without it means Claude is at
+  work, and the extension waits.
+- Auth: device pairing approved on the website; 1-hour JWTs signed with `EXT_JWT_SECRET` (never
+  `JWT_SECRET`), rotating refresh tokens, revoke on `/extension`.
+- The server decides; work goes out as leases (one open per user, across devices and kinds). The
+  extension fetches and drives forms in one hidden worker tab with its own floors: 1s between guest
+  searches, 1.5s between JD reads, 30s between jobs, 6 to 8s page waits, 4 minutes per job.
+- AI: DeepSeek via the OpenAI SDK (`DEEPSEEK_API_KEY`, `AI_*`, `EXT_AI_DAILY_BUDGET_MICRO_USD`).
+  It never answers a personal fact: only questions no rule knows (or empty long-form keys) reach it,
+  a "fact" answer is discarded, and the rest go to the user in the side panel.
+- Releases: bump `extension/manifest.json`'s version for every change that reaches users;
+  `EXT_MIN_VERSION` forces updates; `EXT_LINKEDIN_ENABLED=false` stops every extension at once.
+- Tests: `npm run e2e:ext`, `npm run test:extension`, `npm run ai:smoke`; `npm run e2e` stays green.
+- A LinkedIn DOM fix in one channel (`extension/src/content/linkedin` or the `li_*` modules): check
+  whether the other needs it (BUILD-INSTRUCTIONS.md Appendix A).
