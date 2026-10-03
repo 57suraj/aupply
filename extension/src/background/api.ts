@@ -59,6 +59,8 @@ const errOf = (status: number, json: any) =>
   new ApiError(status, json?.error?.code ?? (typeof json?.error === "string" ? "error" : "http_" + status), json?.error?.message ?? (typeof json?.error === "string" ? json.error : `HTTP ${status}`), json);
 
 let refreshing: Promise<string> | null = null;
+/** Cleared (once per service worker life) after the first call that passes the version gate. */
+let staleUpdateFlag = true;
 
 /** One refresh at a time for every caller. A 409 means another context rotated first: read the
     newest token from storage and try once more. */
@@ -110,6 +112,11 @@ export async function call<T>(method: string, path: string, body: unknown, schem
     }
     const r = await raw(method, path, body, token);
     if (r.status >= 200 && r.status < 300) {
+      // A call that passed the version gate: any "update required" from before is stale.
+      if (staleUpdateFlag) {
+        staleUpdateFlag = false;
+        void local.remove("updateRequired");
+      }
       const parsed = schema.safeParse(r.json);
       if (!parsed.success) {
         log("api", path, "answer failed its schema");

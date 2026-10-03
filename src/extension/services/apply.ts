@@ -21,7 +21,7 @@ import type { ApplyNextResponse, ApplyResult, ApplyResultResponse, Cap, JobOrder
 import { DISABLED_MESSAGE, linkedinEnabled } from "../server/http.js";
 import { logEvent } from "./events.js";
 import { addLeaseDetail, closeExpiredLeases, completeLease, getLease, issueLease, lastCompleted, type LeaseRow } from "./leases.js";
-import { linkedinQueue, metaOf } from "./queue.js";
+import { extAt, linkedinQueue, metaOf } from "./queue.js";
 import { dismissedAmong, openAmong } from "./questions.js";
 import { claudeActivity, ownRun, patchRunMeta, TRACKER_URL, type RunRow } from "./sessions.js";
 
@@ -335,8 +335,10 @@ async function settle(userId: string, lease: LeaseRow, res: ApplyResult, version
       ...(res.errs?.length ? { errs: res.errs } : {}),
       ...(res.e ? { e: res.e } : {}),
       ...(res.hid ? { hid: 1 } : {}),
-      ...(version ? { engine: `ext@${version}` } : {}),
+      // The engine that ran it: this extension's version (an expired lease has none: the run's).
+      engine: `ext@${version ?? runMeta.ext_version ?? "unknown"}`,
       ...(verify ? { verified: true } : {}),
+      ...extAt(),
     };
     if (o.status) {
       delete metadata.retry_after;

@@ -20,7 +20,7 @@ still describes the MCP channel and stays true for it.
 | 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
 | 6. The extension | built; tests green; waits on one manual "Load unpacked" |
 | 7. Website pages | built; pairing check waits on the user |
-| 8. Hardening | not started |
+| 8. Hardening | done: e2e-ext 181 checks |
 | 9. Documentation | not started |
 
 ## Database
@@ -206,6 +206,32 @@ fetch helper with the Supabase session). `App.tsx` gained the two routes and `Da
 card above the resume section; nothing else in `client/src` changed. The client typechecks with
 `npx tsc -p client/tsconfig.json --noEmit` (the root build does not typecheck the client).
 
+## Hardening (phase 8)
+
+- Cleanup: the daily cron and the lazy per-user cleanup end runs with no heartbeat for 30
+  minutes, close expired leases (an expired apply lease settles its job as `ERR`), delete
+  pairings expired over a day and events older than 30 days.
+- Events: the server logs pairing, revocation, run start and end, draft end, JD rate limits,
+  apply stops and failures, and tracker mismatches; the extension reports its own pauses, stalls,
+  page-load timeouts, failed steps, refused URLs, handoffs and its end (`client.*` types). Codes,
+  counts and statuses only.
+- "Claude is active" rests on a stamp: every write the extension makes to `applications` sets
+  `metadata.ext_at`; a LinkedIn row whose `updated_at` is not within 5 seconds of its stamp was
+  last changed by something else (Claude through the MCP, or the dashboard). e2e checks both
+  sides: the extension's own writes never make it wait, an unstamped write does.
+- Budget: e2e spends a user's AI budget mid-draft; the next job is scored with the deterministic
+  fallback (`basis: 'fallback'`), and onboarding falls back to the regex fields.
+- Kill switch: e2e starts a second local server with `EXT_LINKEDIN_ENABLED=false` (same issuer):
+  `session/start`, `draft/start` and `apply/next` answer `disabled`, a live run's heartbeat says
+  stop, `/me` says LinkedIn is off.
+- Update required: a 426 stops the run and shows the banner with the download link; the flag
+  clears when a new version is installed or the first call passes the gate.
+- Notifications: "Aupply needs an answer" once per question in a run, not once per job.
+- Copy: no em dashes in anything written for this build (one pre-existing line in `.env.example`
+  is not ours).
+- Read-through of BUILD-INSTRUCTIONS.md against the code: every rule in sections 2, 6 to 12 is
+  implemented as written or listed under deviations here.
+
 ## Deviations from the plan
 
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
@@ -238,10 +264,9 @@ card above the resume section; nothing else in `client/src` changed. The client 
   `ext_drafts` saves are optimistic on `updated_at`, so two calls at once cannot clobber the
   state (the second gets 409 and asks again).
 - `DraftOrder` and `draft/start` also answer `{ type: "disabled" }` (kill switch).
-- The "Claude is active" check does not count the extension's own rows (`metadata.channel`
-  'extension' or `engine` 'ext@...') or manual applies (`applied_by` 'user'). The plan's literal
-  rule ("engine not starting with ext@") would have treated every row a draft writes, which has
-  no `engine`, as Claude's.
+- The "Claude is active" application check uses the `ext_at` stamp (see Hardening) instead of
+  the plan's literal rule ("engine not starting with ext@"), which would have treated every row a
+  draft writes (no `engine`) as Claude's; manual applies (`applied_by` 'user') do not count.
 - A draft also ends (stop `target`) when the target is reached, and (stop `blocked`) when a
   backoff would last more than 2 hours.
 - Extra file: `services/scoring.ts`.
@@ -290,5 +315,8 @@ card above the resume section; nothing else in `client/src` changed. The client 
 - The MCP engine's `deepText` reads shadow roots only (above). If LinkedIn ever shows the
   success message outside a shadow root, the MCP channel reports UNCONFIRMED where the extension
   reports SENT. Raise with the user; the MCP is frozen for this build.
-
-
+- Cross-channel exclusion on the MCP side (the plan's Appendix C item 3): the extension waits while
+  Claude works LinkedIn, but the MCP only notes an extension run in `start_session`'s
+  `another_run_live` (runs under two hours old) and refuses nothing while the extension works.
+  The shared backoffs, the shared cap and one-lease-per-user still hold. Closing it needs an MCP
+  change; not done (the MCP is frozen for this build).

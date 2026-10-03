@@ -82,6 +82,8 @@ export interface RunState {
   draftDone?: boolean;
   /** Consecutive failed calls to Aupply (network, 5xx): retried, then the run ends. */
   errors?: number;
+  /** Question ids the user was already notified about in this run. */
+  notified?: string[];
   /** What to do once the result being posted is recorded. */
   after?: { pause?: string; end?: "stalled" | "error" };
 }

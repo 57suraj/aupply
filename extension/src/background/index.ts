@@ -43,7 +43,11 @@ setUpdateRequiredHandler(async () => {
 });
 
 const openOnClick = () => chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
-chrome.runtime.onInstalled.addListener(() => void openOnClick());
+// Installed or updated (a new zip loaded): an "update required" from the old version no longer holds.
+chrome.runtime.onInstalled.addListener(() => {
+  void openOnClick();
+  void local.remove("updateRequired");
+});
 chrome.runtime.onStartup.addListener(() => void openOnClick());
 
 chrome.alarms.onAlarm.addListener((a) => {

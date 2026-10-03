@@ -16,6 +16,7 @@ import { saveAnswerFromClaude, updateAnswer } from "../../services/answers.js";
 import { QUEUE_MAX_AGE_HOURS } from "../../services/automation.js";
 import type { DecisionItem, Field, QuestionItem, ReviewItem } from "../contract.js";
 import { notFoundExt } from "../server/http.js";
+import { extAt } from "./queue.js";
 
 const db = () => getSupabaseClient();
 type Meta = Record<string, any>;
@@ -50,7 +51,7 @@ export async function decide(userId: string, items: { id: string; keep: boolean 
   for (const item of items) {
     const row = byId.get(item.id);
     if (!row) continue;
-    const metadata = { ...((row.metadata as Meta) ?? {}), needs_decision: false } as Json;
+    const metadata = { ...((row.metadata as Meta) ?? {}), needs_decision: false, ...extAt() } as Json;
     check(
       await db()
         .from("applications")
@@ -161,7 +162,7 @@ export async function answerQuestion(userId: string, id: string, answer: string)
         delete meta.needs_input;
         released++;
       }
-      check(await db().from("applications").update({ metadata: meta as Json }).eq("id", a.id).eq("user_id", userId));
+      check(await db().from("applications").update({ metadata: { ...meta, ...extAt() } as Json }).eq("id", a.id).eq("user_id", userId));
     }
   }
   return { ok: true as const, released };
@@ -172,17 +173,20 @@ export async function dismissQuestion(userId: string, id: string) {
   const q = await questionOf(userId, id);
   check(await db().from("ext_questions").update({ status: "dismissed" }).eq("id", q.id).eq("user_id", userId));
   const waiting = ((q.waiting as string[] | null) ?? []).filter(Boolean);
-  const skipped = waiting.length
-    ? unwrap(
+  let skipped = 0;
+  if (waiting.length) {
+    const rows = unwrap(await db().from("applications").select("id, metadata").eq("user_id", userId).eq("status", "discovered").in("id", waiting));
+    for (const r of rows) {
+      check(
         await db()
           .from("applications")
-          .update({ status: "skipped", status_reason: `needs your answer: ${q.question}`.slice(0, 500) })
+          .update({ status: "skipped", status_reason: `needs your answer: ${q.question}`.slice(0, 500), metadata: { ...((r.metadata as Meta | null) ?? {}), ...extAt() } as Json })
+          .eq("id", r.id)
           .eq("user_id", userId)
-          .eq("status", "discovered")
-          .in("id", waiting)
-          .select("id")
-      ).length
-    : 0;
+      );
+      skipped++;
+    }
+  }
   return { ok: true as const, skipped };
 }
 

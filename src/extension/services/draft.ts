@@ -28,6 +28,7 @@ import { conflict, DISABLED_MESSAGE, forbidden, linkedinEnabled, notFoundExt, ui
 import { logEvent } from "./events.js";
 import { completeLease, getLease, issueLease, lastCompleted, type LeaseRow } from "./leases.js";
 import { freshPostings, noteCards, storeJd } from "./postings.js";
+import { extAt } from "./queue.js";
 import { candidateBlock, extRules, resumeProfileFor } from "./resumeProfile.js";
 import { scoreJob, type CardFacts, type ScoreCtx } from "./scoring.js";
 import { claudeActivity, ownRun, patchRunMeta } from "./sessions.js";
@@ -275,7 +276,7 @@ async function storeSkips(ctx: Ctx, skips: { id: string; code: DropCode }[]) {
             user_id: ctx.dev.userId, platform: "linkedin", external_id: id, job_url: jobUrl("linkedin", id),
             company_name: c?.co || "(unknown)", job_title: c?.t || "(unknown)", location: c?.loc || null,
             status: "skipped", status_reason: `draft: ${code}`, source: "sweep", run_id: ctx.draft.run_id,
-            metadata: { skip_code: code, channel: "extension", draft_id: ctx.draft.id } as Json,
+            metadata: { skip_code: code, channel: "extension", draft_id: ctx.draft.id, ...extAt() } as Json,
           };
         }),
         { onConflict: "user_id,platform,external_id", ignoreDuplicates: true }

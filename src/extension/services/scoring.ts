@@ -16,6 +16,7 @@ import * as JD from "../ai/prompts/jdFacts.js";
 import type { PostedWithin } from "../contract.js";
 import type { Keep } from "../linkedin/prescreen.js";
 import { getPosting, storeAiFacts } from "./postings.js";
+import { extAt } from "./queue.js";
 
 const db = () => getSupabaseClient();
 
@@ -100,7 +101,7 @@ export async function scoreJob(ctx: ScoreCtx, id: string, card: CardFacts, keep:
           match_score: score,
           metadata: {
             w: card.w, agg: card.agg ?? 0, lvl: keep.lvl, pay: keep.pay, sm: keep.sm, yu: keep.yu ?? 0,
-            needs_decision: needsDecision, channel: "extension", draft_id: ctx.draftId,
+            needs_decision: needsDecision, channel: "extension", draft_id: ctx.draftId, ...extAt(),
             ai: { score: meta.score, verdict: meta.verdict, reasons: meta.reasons, gaps: meta.gaps, model: meta.model, v: meta.v, basis: meta.basis },
           } as Json,
         },

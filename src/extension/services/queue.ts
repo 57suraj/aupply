@@ -6,6 +6,7 @@
  */
 
 import { getSupabaseClient } from "../../db/supabase.js";
+import type { Json } from "../../db/database.types.js";
 import { unwrap } from "../../lib/errors.js";
 import { QUEUE_MAX_AGE_HOURS, queuedJobs } from "../../services/automation.js";
 import type { PostedWithin, QueueResponse } from "../contract.js";
@@ -14,6 +15,10 @@ import { notFoundExt } from "../server/http.js";
 type Meta = Record<string, any>;
 
 export const metaOf = (row: { metadata: unknown }) => ((row.metadata as Meta | null) ?? {}) as Meta;
+/** Every write the extension makes to an application carries this stamp: a row whose updated_at
+    is not (about) its ext_at was last changed by something else, Claude through the MCP included
+    (sessions.ts claudeActivity). */
+export const extAt = () => ({ ext_at: new Date().toISOString() });
 export const waitingOnUser = (m: Meta) => Array.isArray(m.needs_input) && m.needs_input.length > 0;
 export const retryLater = (m: Meta, now = Date.now()) => typeof m.retry_after === "string" && Date.parse(m.retry_after) > now;
 
@@ -69,10 +74,11 @@ export async function queueView(userId: string, within: PostedWithin): Promise<Q
 
 /** POST /linkedin/queue/:id/skip: the user removes a job from the queue. */
 export async function skipQueued(userId: string, id: string) {
+  const cur = unwrap(await getSupabaseClient().from("applications").select("metadata").eq("id", id).eq("user_id", userId).limit(1))[0];
   const rows = unwrap(
     await getSupabaseClient()
       .from("applications")
-      .update({ status: "skipped", status_reason: "user removed from queue" })
+      .update({ status: "skipped", status_reason: "user removed from queue", metadata: { ...((cur?.metadata as Meta | null) ?? {}), ...extAt() } as Json })
       .eq("id", id)
       .eq("user_id", userId)
       .eq("platform", "linkedin")

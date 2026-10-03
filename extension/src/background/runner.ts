@@ -36,6 +36,7 @@ import { FLOORS, LIMITS } from "../shared/constants";
 import type { Cmd, RunState, Todo } from "../shared/messages";
 import { ApiError, call } from "./api";
 import { log } from "./log";
+import { report } from "./report";
 import { session } from "./store";
 import { navigateWorker, reloadWorker, workerTab } from "./tab";
 import { broadcast, notify, refreshMe } from "./ui";
@@ -135,7 +136,7 @@ function pause(run: RunState, message: string) {
   run.message = message;
   run.status = `Paused: ${message}`;
   notify(message);
-  log("runner", "paused", message.slice(0, 80));
+  report("warn", "run.paused", run.runId, { todo: run.todo.do, why: message.slice(0, 120) });
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +224,7 @@ async function stepOnce(): Promise<boolean> {
 function onError(run: RunState, err: unknown) {
   const e = err instanceof ApiError ? err : null;
   log("runner", run.todo.do, "failed", e ? `${e.status} ${e.code}` : String(err).slice(0, 120));
+  report(e && (e.status === 0 || e.status >= 500) ? "warn" : "error", "run.step_failed", run.runId, { todo: run.todo.do, status: e?.status ?? null, code: e?.code ?? null, errors: run.errors ?? 0 });
   if (e && (e.status === 401 || e.status === 426)) {
     finishLocal(run, e.status === 426 ? "This version of the extension is out of date. Update it to go on." : "This browser was disconnected from Aupply.");
     return;
@@ -305,7 +307,7 @@ async function perform(run: RunState) {
       const o = t.order;
       const urls = o.type === "search" ? o.pages.map((p) => p.url) : o.jobs.map((j) => j.url);
       if (!urls.every(allowed)) {
-        log("draft", "refused an order with a URL outside the allowlist");
+        report("error", "draft.url_refused", run.runId, { kind: o.type });
         run.message = "Aupply sent an address the extension does not allow. The run stopped.";
         run.todo = { do: "end", reason: "error" };
         return;
@@ -340,7 +342,7 @@ async function perform(run: RunState) {
     case "exec_job": {
       const l = t.lease;
       if (!isJobUrl(l.job.url)) {
-        log("job", "refused a job URL outside the allowlist");
+        report("error", "job.url_refused", run.runId, {});
         run.message = "Aupply sent an address the extension does not allow. The run stopped.";
         run.todo = { do: "end", reason: "error" };
         return;
@@ -391,7 +393,7 @@ async function perform(run: RunState) {
       const sent = run.counters.sent + run.counters.unconfirmed;
       finishLocal(run, run.message ?? (t.reason === "user_stop" ? "Stopped." : "Done."));
       notify(`Run finished: ${sent} application${sent === 1 ? "" : "s"} sent.${run.message ? ` ${run.message}` : ""}`);
-      log("runner", "ended", t.reason, run.counters);
+      report("info", "run.client_ended", run.runId, { reason: t.reason, counters: run.counters, stalls: run.stalls });
       void refreshMe().then(broadcast).catch(() => undefined);
       return;
     }
@@ -422,7 +424,12 @@ function recordResult(run: RunState, lease: JobOrder, sent: ApplyResult, res: Ap
   else if (r === "UNCONFIRMED") c.unconfirmed++;
   else if (r === "NEEDS_INPUT") {
     c.waiting++;
-    notify("Aupply needs an answer from you. Open the side panel.");
+    // Once per question, however many jobs wait on it.
+    const fresh = (sent.question_ids ?? []).filter((id) => !(run.notified ?? []).includes(id));
+    if (fresh.length || !sent.question_ids?.length) {
+      run.notified = [...(run.notified ?? []), ...fresh].slice(-200);
+      notify("Aupply needs an answer from you. Open the side panel.");
+    }
   } else if (res.status === "failed") c.failed++;
   else if (res.status && ["skipped", "saved", "closed"].includes(res.status)) c.skipped++;
   if (r === "RATE_LIMITED") run.slow = true;
@@ -442,7 +449,7 @@ async function readyTimeout(run: RunState) {
   if (p?.kind !== "ready") return;
   run.pending = undefined;
   run.notLoadedStreak++;
-  log("runner", "page did not load", p.cmd.name);
+  report("warn", "page.not_loaded", run.runId, { cmd: p.cmd.name, streak: run.notLoadedStreak });
   if (p.cmd.name === "apply" && run.todo.do === "exec_job") {
     if (run.notLoadedStreak >= 2) run.after = { pause: "LinkedIn pages are not loading in the Aupply tab. Check the tab, then press Resume." };
     run.todo = { do: "post_result", lease: run.todo.lease, result: { r: "NOT_LOADED" } };
@@ -461,7 +468,7 @@ async function stalled(run: RunState) {
   if (p?.kind !== "cmd") return;
   run.pending = undefined;
   run.stalls++;
-  log("runner", "stalled", p.cmd.name, run.stalls);
+  report("error", "run.stalled", run.runId, { cmd: p.cmd.name, stalls: run.stalls });
   await reloadWorker();
   if (p.cmd.name === "apply" && run.todo.do === "exec_job") {
     if (run.stalls >= 2) run.after = { end: "stalled" };
@@ -579,6 +586,7 @@ export async function onHandoff(m: { what: "typeahead" | "follow"; label: string
     if (m.done) run.handoff = undefined;
     else {
       run.handoff = { what: m.what, label: m.label, value: m.value, until: Date.now() + LIMITS.handoffMs };
+      report("info", "job.handoff", run.runId, { what: m.what });
       notify(m.what === "follow" ? "Aupply needs one click: untick Follow in the Aupply tab." : `Aupply needs one click: choose ${m.value ?? "the suggestion"} in the Aupply tab.`);
     }
     await saveRun(run);

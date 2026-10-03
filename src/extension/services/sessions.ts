@@ -95,9 +95,9 @@ async function endRun(userId: string, runId: string, summary: string, leaseResul
  * writes (section 7.6, check 5):
  *  - platform_state engine_linkedin / engine_linkedin_draft written in the last 30 minutes (the
  *    MCP writes them when it issues or serves an engine), or
- *  - a LinkedIn application changed in the last 15 minutes by anything but the extension.
- * The extension's own rows (metadata.channel 'extension' or engine 'ext@...') and the user's
- * manual applies (applied_by 'user') do not count. retry_at: when the newest activity ages out.
+ *  - a LinkedIn application changed in the last 15 minutes by anything but the extension (the
+ *    extension stamps its writes with metadata.ext_at) or the user's manual apply.
+ * retry_at: when the newest activity ages out.
  */
 export async function claudeActivity(userId: string): Promise<{ retry_at: string } | null> {
   const now = Date.now();
@@ -122,7 +122,9 @@ export async function claudeActivity(userId: string): Promise<{ retry_at: string
   );
   for (const a of apps) {
     const m = (a.metadata as Meta | null) ?? {};
-    const ours = m.channel === "extension" || String(m.engine ?? "").startsWith("ext@");
+    // The extension stamps every write (metadata.ext_at); a later write by anything else moves
+    // updated_at past the stamp. A manual apply (applied_by 'user') is the user, not Claude.
+    const ours = typeof m.ext_at === "string" && Math.abs(Date.parse(a.updated_at) - Date.parse(m.ext_at)) < 5000;
     if (ours || a.applied_by === "user") continue;
     until = Math.max(until, Date.parse(a.updated_at) + 15 * 60_000);
   }

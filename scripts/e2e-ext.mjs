@@ -76,6 +76,13 @@ async function http(method, path, { token, json, headers = {}, version = VERSION
   return { status: res.status, body };
 }
 const code = (r) => r.body?.error?.code;
+/** The extension stamps its writes to applications (metadata.ext_at); test housekeeping that
+    stands in for the extension does too, or it would look like Claude working through the MCP. */
+const extAt = () => ({ ext_at: new Date().toISOString() });
+async function touchApp(id, patch = {}) {
+  const { data } = await admin.from("applications").select("metadata").eq("id", id).single();
+  await admin.from("applications").update({ ...patch, metadata: { ...(data?.metadata ?? {}), ...(patch.metadata ?? {}), ...extAt() } }).eq("id", id);
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -306,6 +313,7 @@ async function main() {
   await sessionsSection(userToken, dev);
   await draftSection(dev);
   await applySection(dev);
+  await killSwitchSection(dev);
   section("Privacy");
   expect("no response body ever carried the user id", !seenBodies.some((b) => b.includes(userId)), null);
 }
@@ -369,6 +377,14 @@ async function sessionsSection(userToken, dev) {
   r = await http("POST", "/session/start", { token: dev.access, json: { mode: "apply" } });
   expect("Claude working LinkedIn through the MCP -> busy claude_active", r.body?.type === "busy" && r.body.reason === "claude_active" && Date.parse(r.body.retry_at) > Date.now() + 20 * 60_000, r.body);
   await admin.from("platform_state").delete().eq("user_id", userId).eq("platform", "engine_linkedin");
+  const { data: mcpRow } = await admin
+    .from("applications")
+    .insert({ user_id: userId, platform: "linkedin", external_id: "399999999901", company_name: "Mcp Corp", job_title: "Backend Engineer", status: "applied", metadata: { engine: "linkedin@abc" } })
+    .select("id")
+    .single();
+  r = await http("POST", "/session/start", { token: dev.access, json: { mode: "apply" } });
+  expect("a LinkedIn application written by something other than the extension (the MCP's report_results) -> claude_active", r.body?.type === "busy" && r.body.reason === "claude_active", r.body);
+  await admin.from("applications").delete().eq("id", mcpRow?.id);
 
   await setGuestBlock(30);
   r = await http("POST", "/session/start", { token: dev.access, json: { mode: "draft" } });
@@ -503,6 +519,8 @@ async function draftSection(dev) {
   r = await next({ lease_id: jd1.lease_id, result: answer(jd1, new Set()) });
   expect("asking again during the backoff still waits", r.body?.type === "wait" && r.body.reason === "rate_limited", r.body);
   await clearBlocks();
+  // The day's AI budget is spent before the last job is scored: it gets the deterministic score.
+  await admin.from("ext_ai_usage").insert({ user_id: userId, day: new Date().toISOString().slice(0, 10), purpose: "fit", model: "e2e-budget", cost_micro_usd: 10_000_000 });
   r = await next({ lease_id: jd1.lease_id });
   const jd2 = r.body;
   expect("after the pause the rate-limited job is read first", jd2?.type === "jd" && jd2.jobs[0]?.id === J.RL && jd2.jobs.some((j) => j.id === J.RL2), jd2);
@@ -517,6 +535,7 @@ async function draftSection(dev) {
       ["CLOSED", "DROP_ATS", "DROP_YEARS", "DROP_MIDSENIOR", "DROP_PAY", "DROP_STACK"].every((c) => s.prescreen_dropped?.[c] === 1),
     s
   );
+  await admin.from("ext_ai_usage").delete().eq("user_id", userId).eq("model", "e2e-budget");
   const { data: gb2 } = await admin.from("platform_state").select("blocked_until").eq("user_id", userId).eq("platform", "linkedin_guest").single();
   expect("...with a 60 minute linkedin_guest backoff", Date.parse(gb2?.blocked_until) - Date.now() > 50 * 60_000, gb2);
   const { data: dr } = await admin.from("ext_drafts").select("status, stop_reason").eq("id", draftId).single();
@@ -535,9 +554,14 @@ async function draftSection(dev) {
   );
   expect("title-filter rejects are not stored", !["T_SENIOR", "T_STACK", "T_SPAM", "T_OFF", "T_YEARS"].some((k) => row(k)), rows?.map((x) => x.external_id));
   expect(
-    "kept jobs are discovered with match_score and metadata.ai (cached, read, and the one read after the pause)",
-    ["CACHED", "KEEP", "RL"].every((k) => row(k)?.status === "discovered" && row(k).match_score === 90 && row(k).metadata.ai?.verdict === "strong" && row(k).metadata.ai.basis === "resume" && row(k).metadata.w === "1h" && row(k).run_id === runId),
-    ["CACHED", "KEEP", "RL"].map(row)
+    "kept jobs are discovered with match_score and metadata.ai (from the cache, and read)",
+    ["CACHED", "KEEP"].every((k) => row(k)?.status === "discovered" && row(k).match_score === 90 && row(k).metadata.ai?.verdict === "strong" && row(k).metadata.ai.basis === "resume" && row(k).metadata.w === "1h" && row(k).run_id === runId),
+    ["CACHED", "KEEP"].map(row)
+  );
+  expect(
+    "with the AI budget spent, a job gets the deterministic score (queue_jobs' arithmetic: 50, +30 last hour, +10 years fit)",
+    row("RL")?.status === "discovered" && row("RL").match_score === 90 && row("RL").metadata.ai?.basis === "fallback" && row("RL").metadata.ai.model === null,
+    row("RL")
   );
   expect("a far technology: discovered and waiting on the user's decision", row("FAR")?.status === "discovered" && row("FAR").metadata.needs_decision === true && row("FAR").metadata.sm?.join() === "Java", row("FAR"));
   expect("a weak fit is skipped as LOW_FIT", row("LOWFIT")?.status === "skipped" && row("LOWFIT").status_reason === "draft: LOW_FIT 30", row("LOWFIT"));
@@ -551,7 +575,11 @@ async function draftSection(dev) {
   expect("decisions list the far-technology job", r.status === 200 && r.body.items.length === 1 && r.body.items[0].job_id === J.FAR && r.body.items[0].wants.join() === "Java", r.body);
   const farId = r.body?.items?.[0]?.id;
   r = await http("GET", "/linkedin/queue?posted_within=1h", { token: dev.access });
-  expect("the queue holds the three ready jobs, best first, with reasons", r.status === 200 && r.body.items.length === 3 && r.body.items.every((i) => i.score === 90 && i.reasons.length && i.window === "1h"), r.body);
+  expect(
+    "the queue holds the three ready jobs, best first, with the AI's reasons",
+    r.status === 200 && r.body.items.length === 3 && r.body.items.every((i) => i.score === 90 && i.window === "1h") && r.body.items.filter((i) => i.reasons.length).length === 2,
+    r.body
+  );
   r = await http("POST", "/linkedin/decisions", { token: dev.access, json: { items: [{ id: farId, keep: true }] } });
   expect("keep a far-technology job", r.status === 200 && r.body.kept === 1, r.body);
   r = await http("GET", "/linkedin/queue?posted_within=1h", { token: dev.access });
@@ -567,6 +595,49 @@ async function draftSection(dev) {
   expect("session/end counts the run's jobs", r.status === 200 && r.body.counts.discovered === 3 && r.body.counts.skipped >= 7, r.body);
   await clearBlocks();
   expect("no response body ever carried the user id (first_seen_by never leaves the server)", !seenBodies.some((b) => b.includes(userId)), null);
+}
+
+// ---------------------------------------------------------------------------
+// The kill switch: a second local server with EXT_LINKEDIN_ENABLED=false (same issuer, so the
+// device token is valid there too). Skipped against a deployed server.
+// ---------------------------------------------------------------------------
+async function killSwitchSection(dev) {
+  section("Kill switch");
+  if (!/^http:\/\/localhost:\d+$/.test(BASE)) {
+    console.log("  (skipped: needs a local server)");
+    return;
+  }
+  const { spawn } = await import("node:child_process");
+  const port = Number(new URL(BASE).port) + 1;
+  const child = spawn("npx", ["tsx", "src/extension/server/dev.ts"], {
+    env: { ...process.env, MCP_BASE_URL: BASE, EXT_PORT: String(port), EXT_LINKEDIN_ENABLED: "false", AI_FAKE: "1", EXT_MIN_VERSION: "0.1.0" },
+    stdio: "ignore",
+  });
+  const OFF = `http://localhost:${port}/ext/v1`;
+  try {
+    for (let i = 0; i < 60; i++) {
+      const ok = await fetch(`${OFF}/health`).then((x) => x.ok).catch(() => false);
+      if (ok) break;
+      await sleep(500);
+    }
+    // A draft run (today's cap is full by now, which only refuses applying).
+    let r = await http("POST", "/session/start", { token: dev.access, json: { mode: "draft" } });
+    const runId = r.body?.run_id;
+    expect("(a live run started while the switch is on)", r.body?.type === "started", r.body);
+    r = await http("POST", `${OFF}/session/start`, { token: dev.access, json: { mode: "draft_apply" } });
+    expect("switched off: session/start -> disabled", r.body?.type === "disabled" && r.body.message.length > 10, r.body);
+    r = await http("POST", `${OFF}/linkedin/draft/start`, { token: dev.access, json: { run_id: runId } });
+    expect("switched off: draft/start -> disabled", r.body?.type === "disabled", r.body);
+    r = await http("POST", `${OFF}/linkedin/apply/next`, { token: dev.access, json: { run_id: runId } });
+    expect("switched off: apply/next -> disabled", r.body?.type === "disabled", r.body);
+    r = await http("POST", `${OFF}/session/heartbeat`, { token: dev.access, json: { run_id: runId, phase: "applying" } });
+    expect("switched off: a live run's heartbeat says stop", r.body?.stop?.reason === "disabled", r.body);
+    r = await http("GET", `${OFF}/me`, { token: dev.access });
+    expect("switched off: /me says LinkedIn is off", r.body?.linkedin?.enabled === false, r.body?.linkedin);
+    await http("POST", "/session/end", { token: dev.access, json: { run_id: runId, reason: "done" } });
+  } finally {
+    child.kill();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -591,20 +662,21 @@ async function applySection(dev) {
   const ids = Object.fromEntries(Object.keys(jobs).map((k, i) => [k, String(B + i + 1)]));
   testJobIds.push(...Object.values(ids));
   // A clean queue: the draft section's jobs leave it, these ten join it.
-  await admin.from("applications").update({ status: "skipped", status_reason: "e2e" }).eq("user_id", userId).eq("status", "discovered");
+  const { data: leftover } = await admin.from("applications").select("id").eq("user_id", userId).eq("status", "discovered");
+  for (const row of leftover ?? []) await touchApp(row.id, { status: "skipped", status_reason: "e2e" });
   const { data: inserted } = await admin
     .from("applications")
     .insert(
       Object.entries(jobs).map(([k, [title, company, score]]) => ({
         user_id: userId, platform: "linkedin", external_id: ids[k], job_url: `https://www.linkedin.com/jobs/view/${ids[k]}/`, company_name: company, job_title: title,
         status: "discovered", match_score: score, source: "sweep", experience_min_years: 1,
-        metadata: { w: "1h", agg: 0, lvl: null, pay: null, sm: [], yu: 0, needs_decision: false, channel: "extension" },
+        metadata: { w: "1h", agg: 0, lvl: null, pay: null, sm: [], yu: 0, needs_decision: false, channel: "extension", ...extAt() },
       }))
     )
     .select("id, external_id");
   const appId = Object.fromEntries(Object.entries(ids).map(([k, ext]) => [k, inserted?.find((r) => r.external_id === ext)?.id]));
   const app = async (k) => (await admin.from("applications").select("status, status_reason, applied_by, metadata").eq("id", appId[k]).single()).data;
-  const park = (k) => admin.from("applications").update({ status: "skipped", status_reason: "e2e" }).eq("id", appId[k]);
+  const park = (k) => touchApp(appId[k], { status: "skipped", status_reason: "e2e" });
 
   section("7. Apply: leases and pacing");
   let r = await http("POST", "/session/start", { token: dev.access, json: { mode: "apply", posted_within: "1h" } });
@@ -766,7 +838,7 @@ async function applySection(dev) {
   expect("a tracker read after 10 apply leases in the run", r.body?.type === "tracker", r.body);
   await http("POST", "/linkedin/tracker", { token: dev.access, json: { lease_id: r.body.lease_id, count: 12 } });
 
-  await admin.from("applications").update({ metadata: { ...(await app("C")).metadata, retry_after: new Date(Date.now() - 1000).toISOString() } }).eq("id", appId.C);
+  await touchApp(appId.C, { metadata: { retry_after: new Date(Date.now() - 1000).toISOString() } });
   r = await next();
   const LC2 = r.body;
   r = await result(LC2.lease_id, { r: "STALL" });
@@ -798,11 +870,11 @@ async function applySection(dev) {
   await admin.from("applications").insert(
     Array.from({ length: 35 }, (_, i) => ({
       user_id: userId, platform: "linkedin", external_id: String(B + 50 + i), company_name: "Cap Filler", job_title: "Backend Engineer",
-      status: "applied", applied_by: "aupply", applied_at: today, metadata: { channel: "extension", engine: `ext@${VERSION}` },
+      status: "applied", applied_by: "aupply", applied_at: today, metadata: { channel: "extension", engine: `ext@${VERSION}`, ...extAt() },
     }))
   );
   testJobIds.push(...Array.from({ length: 35 }, (_, i) => String(B + 50 + i)));
-  await admin.from("applications").update({ metadata: { ...(await app("K")).metadata, retry_after: new Date(Date.now() - 1000).toISOString() } }).eq("id", appId.K);
+  await touchApp(appId.K, { metadata: { retry_after: new Date(Date.now() - 1000).toISOString() } });
   r = await next();
   expect("the daily cap reached (35 today) -> done (cap)", r.body?.type === "done" && r.body.reason === "cap", r.body);
 
