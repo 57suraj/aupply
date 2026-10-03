@@ -10,6 +10,9 @@
  *     DELETE /web/devices/:id  GET /web/extension
  *   Device (device token + version gate): POST /device/signout  PATCH /device  GET /me
  *     POST /onboarding/propose  /onboarding/save  POST /events
+ *     POST /session/start  /session/heartbeat  /session/end  POST /linkedin/tracker
+ *     POST /linkedin/draft/start  /linkedin/draft/next  GET /linkedin/queue
+ *     POST /linkedin/queue/:id/skip  GET|POST /linkedin/decisions
  *   Cron (Bearer CRON_SECRET): GET /cron/cleanup
  */
 
@@ -20,7 +23,15 @@ import { requireUser, sessionUser } from "../../auth/supabaseUser.js";
 import { pollPairing, refreshTokens, startPairing, webPairDecide, webPairInfo } from "../auth/pairing.js";
 import { deviceOf, requireDevice } from "../auth/requireDevice.js";
 import {
+  DecisionsRequest,
+  DraftNextRequest,
+  DraftStartRequest,
   EventsRequest,
+  HeartbeatRequest,
+  POSTED_WITHIN,
+  SessionEndRequest,
+  SessionStartRequest,
+  TrackerRequest,
   PairPollRequest,
   PairStartRequest,
   RefreshRequest,
@@ -29,7 +40,14 @@ import {
   type HealthResponse,
   type WebExtensionInfo,
 } from "../contract.js";
+import { defaultWithin } from "../../platforms/config.js";
+import { getPreferences } from "../../services/candidate.js";
+import { recordTracker } from "../services/apply.js";
 import { cleanupAll, requireCron } from "../services/cleanup.js";
+import { nextDraft, startDraft } from "../services/draft.js";
+import { queueView, skipQueued } from "../services/queue.js";
+import { decide, listDecisions } from "../services/questions.js";
+import { endSession, heartbeat, startSession } from "../services/sessions.js";
 import { listDevices, renameDevice, revokeDevice } from "../services/devices.js";
 import { logClientEvents } from "../services/events.js";
 import { me } from "../services/me.js";
@@ -129,6 +147,39 @@ v1.post("/onboarding/propose", ...device, async (_req, res) => {
 });
 v1.post("/onboarding/save", ...device, async (req, res) => {
   res.json(await saveOnboarding(deviceOf(res).userId, req.body));
+});
+v1.post("/session/start", ...device, async (req, res) => {
+  res.json(await startSession(deviceOf(res), SessionStartRequest.parse(req.body)));
+});
+v1.post("/session/heartbeat", ...device, async (req, res) => {
+  res.json(await heartbeat(deviceOf(res), HeartbeatRequest.parse(req.body)));
+});
+v1.post("/session/end", ...device, async (req, res) => {
+  res.json(await endSession(deviceOf(res), SessionEndRequest.parse(req.body)));
+});
+v1.post("/linkedin/tracker", ...device, async (req, res) => {
+  res.json(await recordTracker(deviceOf(res), TrackerRequest.parse(req.body)));
+});
+v1.post("/linkedin/draft/start", ...device, async (req, res) => {
+  res.json(await startDraft(deviceOf(res), DraftStartRequest.parse(req.body)));
+});
+v1.post("/linkedin/draft/next", ...device, async (req, res) => {
+  res.json(await nextDraft(deviceOf(res), DraftNextRequest.parse(req.body)));
+});
+v1.get("/linkedin/queue", ...device, async (req, res) => {
+  const d = deviceOf(res);
+  const asked = z.enum(POSTED_WITHIN).safeParse(req.query.posted_within);
+  const within = asked.success ? asked.data : defaultWithin((await getPreferences(d.userId)).max_posting_age_hours);
+  res.json(await queueView(d.userId, within));
+});
+v1.post("/linkedin/queue/:id/skip", ...device, async (req, res) => {
+  res.json(await skipQueued(deviceOf(res).userId, uuidParam(req)));
+});
+v1.get("/linkedin/decisions", ...device, async (_req, res) => {
+  res.json(await listDecisions(deviceOf(res).userId));
+});
+v1.post("/linkedin/decisions", ...device, async (req, res) => {
+  res.json(await decide(deviceOf(res).userId, DecisionsRequest.parse(req.body).items));
 });
 v1.post("/events", ...device, async (req, res) => {
   const d = deviceOf(res);

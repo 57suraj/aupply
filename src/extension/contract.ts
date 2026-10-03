@@ -196,3 +196,191 @@ export const ClientEvent = z.object({
 });
 export type ClientEvent = z.infer<typeof ClientEvent>;
 export const EventsRequest = z.object({ events: z.array(ClientEvent).min(1).max(50) });
+
+// ---------------------------------------------------------------------------
+// Leases: every unit of LinkedIn work carries its lease and its time window
+// ---------------------------------------------------------------------------
+
+const LeaseTimes = { lease_id: z.string().uuid(), not_before: z.string(), expires_at: z.string() };
+
+export const TrackerOrder = z.object({ type: z.literal("tracker"), ...LeaseTimes, url: z.string() });
+export type TrackerOrder = z.infer<typeof TrackerOrder>;
+
+export const WAIT_REASONS = ["rate_limited", "lease_busy", "claude_active", "blocked", "working"] as const;
+export const WaitOrder = z.object({ type: z.literal("wait"), until: z.string(), reason: z.enum(WAIT_REASONS) });
+export type WaitOrder = z.infer<typeof WaitOrder>;
+
+export const DisabledAnswer = z.object({ type: z.literal("disabled"), message: z.string() });
+
+// ---------------------------------------------------------------------------
+// Sessions (section 7.6)
+// ---------------------------------------------------------------------------
+
+export const RUN_MODES = ["draft_apply", "apply", "draft"] as const;
+export type RunMode = (typeof RUN_MODES)[number];
+
+export const SessionStartRequest = z.object({
+  posted_within: z.enum(POSTED_WITHIN).optional(),
+  mode: z.enum(RUN_MODES),
+  keywords: z.array(z.string().trim().min(1).max(100)).max(12).optional(),
+  target: z.number().int().min(5).max(60).optional(),
+});
+export type SessionStartRequest = z.infer<typeof SessionStartRequest>;
+
+export const SessionStartResponse = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("started"),
+    run_id: z.string().uuid(),
+    posted_within: z.enum(POSTED_WITHIN),
+    plan: z.object({ draft: z.boolean(), apply: z.boolean() }),
+    cap: Cap,
+    first: z.union([TrackerOrder, WaitOrder]),
+  }),
+  DisabledAnswer,
+  z.object({ type: z.literal("not_subscribed"), message: z.string() }),
+  z.object({ type: z.literal("setup_needed"), gaps: z.array(z.string()) }),
+  z.object({ type: z.literal("busy"), reason: z.enum(["other_device", "claude_active"]), device_name: z.string().nullable().optional(), retry_at: z.string().optional() }),
+  z.object({ type: z.literal("blocked"), scope: z.string(), until: z.string().nullable(), reason: z.string().nullable() }),
+  z.object({ type: z.literal("cap_reached"), cap: Cap }),
+]);
+export type SessionStartResponse = z.infer<typeof SessionStartResponse>;
+
+export const RUN_PHASES = ["starting", "tracker", "drafting", "applying", "waiting", "paused", "ending", "done"] as const;
+export const HeartbeatRequest = z.object({
+  run_id: z.string().uuid(),
+  phase: z.enum(RUN_PHASES),
+  hidden: z.boolean().optional(),
+  job_id: z.string().max(20).optional(),
+});
+export const HeartbeatResponse = z.object({ ok: z.literal(true), stop: z.object({ reason: z.string() }).optional() });
+export type HeartbeatResponse = z.infer<typeof HeartbeatResponse>;
+
+export const END_REASONS = ["done", "user_stop", "cap", "blocked", "error", "stalled"] as const;
+export const SessionEndRequest = z.object({ run_id: z.string().uuid(), reason: z.enum(END_REASONS) });
+export const SessionEndResponse = z.object({
+  counts: z.record(z.number()),
+  saved_for_you: z.array(z.object({ id: z.string(), title: z.string(), company: z.string(), url: z.string().nullable() })),
+  provisional_used: z.array(z.object({ question: z.string(), answer: z.string() })),
+  tracker_mismatch: z.object({ moved: z.number(), recorded: z.number() }).nullable().optional(),
+});
+export type SessionEndResponse = z.infer<typeof SessionEndResponse>;
+
+// ---------------------------------------------------------------------------
+// Tracker (section 9.8)
+// ---------------------------------------------------------------------------
+
+export const TrackerRequest = z.object({ lease_id: z.string().uuid(), count: z.number().int().min(0).max(1_000_000).nullable() });
+export const TrackerResponse = z.object({ cap: Cap });
+
+// ---------------------------------------------------------------------------
+// Draft (section 8)
+// ---------------------------------------------------------------------------
+
+export const SearchOrder = z.object({
+  type: z.literal("search"),
+  ...LeaseTimes,
+  gap_ms: z.number(),
+  pages: z.array(z.object({ url: z.string(), s: z.number().int(), page: z.number().int() })).max(5),
+});
+export type SearchOrder = z.infer<typeof SearchOrder>;
+export const JdOrder = z.object({
+  type: z.literal("jd"),
+  ...LeaseTimes,
+  gap_ms: z.number(),
+  jobs: z.array(z.object({ id: z.string(), url: z.string() })).max(10),
+});
+export type JdOrder = z.infer<typeof JdOrder>;
+
+export const DraftSummary = z.object({
+  found: z.number(),
+  title_dropped: z.record(z.number()),
+  already_known: z.number(),
+  read: z.number(),
+  cached: z.number(),
+  prescreen_dropped: z.record(z.number()),
+  low_fit: z.number(),
+  kept: z.number(),
+  decisions: z.number(),
+  stop: z.string().optional(),
+});
+export type DraftSummary = z.infer<typeof DraftSummary>;
+
+export const DraftOrder = z.discriminatedUnion("type", [
+  SearchOrder,
+  JdOrder,
+  WaitOrder,
+  z.object({ type: z.literal("done"), summary: DraftSummary }),
+  DisabledAnswer,
+]);
+export type DraftOrder = z.infer<typeof DraftOrder>;
+
+export const DraftStartRequest = z.object({
+  run_id: z.string().uuid(),
+  keywords: z.array(z.string().trim().min(1).max(100)).max(12).optional(),
+  target: z.number().int().min(5).max(60).optional(),
+});
+export const DraftStartResponse = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("started"),
+    draft_id: z.string().uuid(),
+    searching: z.object({ posted_within: z.enum(POSTED_WITHIN), roles: z.array(z.string()), windows: z.array(z.enum(POSTED_WITHIN)) }),
+    order: DraftOrder,
+  }),
+  DisabledAnswer,
+  z.object({ type: z.literal("blocked"), scope: z.string(), until: z.string().nullable(), reason: z.string().nullable() }),
+  z.object({ type: z.literal("cap_reached"), cap: Cap }),
+  z.object({ type: z.literal("no_roles"), message: z.string() }),
+]);
+export type DraftStartResponse = z.infer<typeof DraftStartResponse>;
+
+/** Raw response bodies, capped at 150,000 characters each; the server parses them. */
+export const MAX_HTML = 150_000;
+const html = z.string().max(MAX_HTML + 1000);
+export const SearchResult = z.object({
+  pages: z.array(z.object({ url: z.string(), status: z.number().int(), html })).max(5),
+  stopped: z.literal("rate_limited").optional(),
+});
+export const JdResult = z.object({
+  jobs: z.array(z.object({ id: z.string().regex(/^\d{6,15}$/), status: z.number().int(), html })).max(10),
+  stopped: z.literal("rate_limited").optional(),
+});
+export const DraftNextRequest = z.object({
+  draft_id: z.string().uuid(),
+  lease_id: z.string().uuid().optional(),
+  result: z.union([SearchResult, JdResult]).optional(),
+});
+export type DraftNextRequest = z.infer<typeof DraftNextRequest>;
+
+// ---------------------------------------------------------------------------
+// Queue and stack decisions (sections 8.6, 8.7)
+// ---------------------------------------------------------------------------
+
+export const QueueItem = z.object({
+  id: z.string().uuid(),
+  job_id: z.string(),
+  title: z.string(),
+  company: z.string(),
+  location: z.string().nullable(),
+  score: z.number().nullable(),
+  verdict: z.string().nullable(),
+  reasons: z.array(z.string()),
+  gaps: z.array(z.string()),
+  window: z.string().nullable(),
+});
+export type QueueItem = z.infer<typeof QueueItem>;
+export const QueueResponse = z.object({ posted_within: z.enum(POSTED_WITHIN), items: z.array(QueueItem), waiting_on_you: z.number() });
+export type QueueResponse = z.infer<typeof QueueResponse>;
+
+export const DecisionItem = z.object({
+  id: z.string().uuid(),
+  job_id: z.string(),
+  title: z.string(),
+  company: z.string(),
+  wants: z.array(z.string()),
+  score: z.number().nullable(),
+  reasons: z.array(z.string()),
+});
+export type DecisionItem = z.infer<typeof DecisionItem>;
+export const DecisionsResponse = z.object({ items: z.array(DecisionItem) });
+export const DecisionsRequest = z.object({ items: z.array(z.object({ id: z.string().uuid(), keep: z.boolean() })).min(1).max(100) });
+export const DecisionsResult = z.object({ kept: z.number(), dropped: z.number() });

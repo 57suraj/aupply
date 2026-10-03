@@ -16,7 +16,7 @@ still describes the MCP channel and stays true for it.
 | 1. Database | done |
 | 2. `/ext` function, auth, devices | done: e2e-ext sections 1 to 4 |
 | 3. AI module | done in fake mode; smoke test waits on `DEEPSEEK_API_KEY` |
-| 4. Draft pipeline | not started |
+| 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
 | 5. Apply pipeline | not started |
 | 6. The extension | not started |
 | 7. Website pages | not started |
@@ -98,6 +98,30 @@ keys, for the prefix cache) and `extractJson` (the first JSON object in the cont
   `AI_SMART_JSON_MODE=off` switches the smart tier to prompt-only JSON if JSON mode fails with
   thinking on.
 
+## Sessions and the draft (phase 4)
+
+- `services/sessions.ts`: `session/start` (section 7.6's checks in order), `heartbeat`, `end`
+  (counts, saved jobs, provisional answers used, the tracker check). Starting a run ends this
+  device's older open runs and other devices' runs that stopped beating, so none can resume
+  next to the new one. `services/entitlement.ts`: `isSubscribed` is always true (payments on
+  hold).
+- "Claude is active" (`claudeActivity`): `platform_state` `engine_linkedin` or
+  `engine_linkedin_draft` written in the last 30 minutes (the MCP writes them on every engine
+  issue and delivery; a trigger keeps `updated_at`), or a LinkedIn application changed in the
+  last 15 minutes by something other than the extension. `retry_at` is when the newest activity
+  ages out of its window.
+- `POST /linkedin/tracker` (section 9.8) is built here, because every run starts with a tracker
+  lease. It stores the count exactly as the MCP's `noteTracker` does and keeps the run's first
+  and last reading.
+- `services/draft.ts`: the draft state machine in `ext_drafts.state` (screening config, search
+  progress, candidates, JD queue, jobs to score, rate-limit hits). Every order is a lease, paced
+  2 seconds after the last draft lease finished. `services/scoring.ts`: JD facts (shared in
+  `job_postings`), the resume profile, the fit score, the deterministic fallback and the queue
+  row. `services/postings.ts`: the shared cache. `linkedin/guest.ts`, `titleFilter.ts`,
+  `prescreen.ts`: the ports, each citing its source.
+- Decisions (`services/questions.ts`) and the queue view and skip (`services/queue.ts`) as
+  sections 8.6 and 8.7; item ids are the application row's uuid, with `job_id` alongside.
+
 ## Deviations from the plan
 
 - Files beyond section 5's layout: `services/me.ts` (`GET /me`), `services/queue.ts` (the ready
@@ -114,6 +138,29 @@ keys, for the prefix cache) and `extractJson` (the first JSON object in the cont
   instead of a 503, so the side panel's form is always filled as far as it can be.
 - New env `AI_SMART_JSON_MODE` (see the AI section). `/health` also reports the engine
   self-check.
+
+- Search orders hold the next page of each active search (up to 5), not consecutive pages of
+  one search, so the "fewer than 10 cards ends that search's paging" rule applies between
+  orders and no page is fetched after a short one. "First window wins" is kept as "the freshest
+  window a job was found in wins", which is the same result in any fetch order.
+- A search rate limit (429 or 999) blocks `linkedin_guest` for 60 minutes and finishes the draft
+  with no JD reads at all (the guest API is in a backoff); jobs found in the shared cache are
+  still screened and scored. Unread jobs are not stored, so the next draft finds them again.
+- Scoring runs inside `draft/next`, at most 25 seconds per request (4 at a time). When jobs are
+  left to score but nothing is left to read, the answer is `{ type: "wait", reason: "working",
+  until: now }`: the extension asks again at once. Wait reasons also include `blocked`.
+- `draft/next` takes `lease_id` and `result` as optional (a call after a wait has neither); a
+  repeated result for a completed lease is answered with the next order, never processed twice.
+  `ext_drafts` saves are optimistic on `updated_at`, so two calls at once cannot clobber the
+  state (the second gets 409 and asks again).
+- `DraftOrder` and `draft/start` also answer `{ type: "disabled" }` (kill switch).
+- The "Claude is active" check does not count the extension's own rows (`metadata.channel`
+  'extension' or `engine` 'ext@...') or manual applies (`applied_by` 'user'). The plan's literal
+  rule ("engine not starting with ext@") would have treated every row a draft writes, which has
+  no `engine`, as Claude's.
+- A draft also ends (stop `target`) when the target is reached, and (stop `blocked`) when a
+  backoff would last more than 2 hours.
+- Extra file: `services/scoring.ts`.
 
 ## Open issues
 
