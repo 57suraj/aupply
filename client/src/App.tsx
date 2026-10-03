@@ -8,6 +8,8 @@ import Pricing from "./pages/Pricing";
 import Dashboard from "./pages/Dashboard";
 import Account from "./pages/Account";
 import OAuthConsent from "./pages/OAuthConsent";
+import ExtensionPage from "./extension/ExtensionPage";
+import ExtensionConnect from "./extension/ExtensionConnect";
 
 export default function App() {
   return (
@@ -26,12 +28,23 @@ export default function App() {
             element={<OAuthConsent />}
           />
 
+          {/* Chrome extension: approving a browser (signs in first, like the consent page) */}
+          <Route path="/extension/connect" element={<ExtensionConnect />} />
+
           {/* Protected routes */}
           <Route
             path="/dashboard"
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/extension"
+            element={
+              <ProtectedRoute>
+                <ExtensionPage />
               </ProtectedRoute>
             }
           />

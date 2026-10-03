@@ -6,6 +6,7 @@ import { Button } from "../components/Button";
 import { ResumeManager } from "../components/ResumeManager";
 import { SavedJobs } from "../components/SavedJobs";
 import { ApplicationTracker } from "../components/ApplicationTracker";
+import { ExtensionCard } from "../extension/ExtensionCard";
 
 const mcpUrl =
   (import.meta.env.VITE_MCP_BASE_URL as string | undefined) ||
@@ -151,6 +152,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Resume ────────────────────────────────────────── */}
+        <ExtensionCard />
         <ResumeManager />
 
         {/* ── Profile sections (placeholders) ───────────────── */}

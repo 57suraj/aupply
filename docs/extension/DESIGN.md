@@ -19,7 +19,7 @@ still describes the MCP channel and stays true for it.
 | 4. Draft pipeline | done: e2e-ext sections 5 and 6 |
 | 5. Apply pipeline | done: e2e-ext sections 7 to 11 |
 | 6. The extension | built; tests green; waits on one manual "Load unpacked" |
-| 7. Website pages | not started |
+| 7. Website pages | built; pairing check waits on the user |
 | 8. Hardening | not started |
 | 9. Documentation | not started |
 
@@ -194,6 +194,17 @@ URL host other than LinkedIn and Aupply, zips `dist/` and writes `src/extension/
   single-control label rule, radio questions, field collection skipping filled fields, actions
   firing input and change, a full job on a synthetic modal (fills, unticks Follow, submits, never
   clicks the job page's Save), the tracker count, the URL allowlist, `sleep` and `until`.
+
+## Website pages (phase 7)
+
+`client/src/extension/`: `ExtensionPage.tsx` (`/extension`, signed in: the download with the latest
+version, the install steps, the connected browsers with Disconnect), `ExtensionConnect.tsx`
+(`/extension/connect?code=...`: signed out goes to `/login?oauth_return=...` and comes back, as the
+OAuth consent page does; shows the device, version and code to compare, Approve or Deny),
+`ExtensionCard.tsx` (the dashboard card, with the number of connected browsers), `api.ts` (its own
+fetch helper with the Supabase session). `App.tsx` gained the two routes and `Dashboard.tsx` the
+card above the resume section; nothing else in `client/src` changed. The client typechecks with
+`npx tsc -p client/tsconfig.json --noEmit` (the root build does not typecheck the client).
 
 ## Deviations from the plan
 
